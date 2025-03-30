@@ -1,0 +1,149 @@
+{% extends "layout.html" %}
+
+{% block title %}티스토리 계정 관리{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <h2>티스토리 계정 관리</h2>
+    
+    {% if error %}
+    <div class="alert alert-danger" role="alert">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    {% if message %}
+    <div class="alert alert-success" role="alert">
+        {{ message }}
+    </div>
+    {% endif %}
+
+    <div class="form-group mt-3">
+        <label for="account_select">블로그 선택:</label>
+        <select class="form-select" id="account_select">
+            <option value="">새 블로그 추가</option>
+            {% for account in accounts %}
+            <option value="{{ account }}">{{ account }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
+    <form method="post" action="/save-account" class="mt-4" id="accountForm">
+        <div class="form-group">
+            <label for="account_name">블로그 이름:</label>
+            <input type="text" class="form-control" id="account_name" name="account_name" value="{{ account_name }}" required>
+        </div>
+        
+        <div class="form-group mt-3">
+            <label for="blog_url">블로그 주소:</label>
+            <input type="text" class="form-control" id="blog_url" name="blog_url" value="{{ blog_url }}" placeholder="예: myblog.tistory.com" required>
+            <small class="form-text text-muted">전체 블로그 주소를 입력해주세요. (예: myblog.tistory.com)</small>
+        </div>
+        
+        <div class="form-group mt-3">
+            <label for="user_id">카카오 ID:</label>
+            <input type="text" class="form-control" id="user_id" name="user_id" value="{{ user_id }}" required>
+        </div>
+        
+        <div class="form-group mt-3">
+            <label for="password">비밀번호:</label>
+            <input type="password" class="form-control" id="password" name="password" value="{{ password }}" required>
+            <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" id="show_password">
+                <label class="form-check-label" for="show_password">비밀번호 표시</label>
+            </div>
+        </div>
+        
+        <button type="submit" class="btn btn-primary mt-4">계정 저장</button>
+    </form>
+</div>
+
+<script>
+document.getElementById('show_password').addEventListener('change', function() {
+    var passwordInput = document.getElementById('password');
+    passwordInput.type = this.checked ? 'text' : 'password';
+});
+
+// 페이지 로드 시 저장된 계정 선택 상태 복원
+document.addEventListener('DOMContentLoaded', async function() {
+    const savedAccount = sessionStorage.getItem('selectedAccount');
+    if (savedAccount) {
+        const accountSelect = document.getElementById('account_select');
+        accountSelect.value = savedAccount;
+        
+        // 저장된 계정 정보 불러오기
+        try {
+            const response = await fetch(`/get-account/${savedAccount}`);
+            if (!response.ok) throw new Error('계정 정보를 불러올 수 없습니다.');
+            
+            const data = await response.json();
+            document.getElementById('account_name').value = data.account_name;
+            document.getElementById('blog_url').value = data.blog_url;
+            document.getElementById('user_id').value = data.user_id;
+            document.getElementById('password').value = data.password;
+        } catch (error) {
+            console.error('계정 정보를 불러오는 중 오류가 발생했습니다:', error);
+        }
+    }
+});
+
+// 계정 선택 시 정보 불러오기
+document.getElementById('account_select').addEventListener('change', async function() {
+    const selectedAccount = this.value;
+    
+    // 선택된 계정을 세션 스토리지에 저장
+    if (selectedAccount) {
+        sessionStorage.setItem('selectedAccount', selectedAccount);
+    } else {
+        sessionStorage.removeItem('selectedAccount');
+    }
+    
+    if (!selectedAccount) {
+        // 새 계정 추가 선택 시 폼 초기화
+        document.getElementById('account_name').value = '';
+        document.getElementById('blog_url').value = '';
+        document.getElementById('user_id').value = '';
+        document.getElementById('password').value = '';
+        return;
+    }
+
+    try {
+        const response = await fetch(`/get-account/${selectedAccount}`);
+        if (!response.ok) throw new Error('계정 정보를 불러올 수 없습니다.');
+        
+        const data = await response.json();
+        document.getElementById('account_name').value = data.account_name;
+        document.getElementById('blog_url').value = data.blog_url;
+        document.getElementById('user_id').value = data.user_id;
+        document.getElementById('password').value = data.password;
+    } catch (error) {
+        alert('계정 정보를 불러오는 중 오류가 발생했습니다: ' + error.message);
+    }
+});
+
+// 폼 제출 처리
+document.getElementById('accountForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    try {
+        const response = await fetch('/save-account', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert('계정이 성공적으로 저장되었습니다.');
+            // 새로 저장된 계정을 세션 스토리지에 저장
+            sessionStorage.setItem('selectedAccount', formData.get('account_name'));
+            location.reload();  // 페이지 새로고침하여 계정 목록 업데이트
+        } else {
+            alert('계정 저장 중 오류가 발생했습니다: ' + result.error);
+        }
+    } catch (error) {
+        alert('계정 저장 중 오류가 발생했습니다: ' + error.message);
+    }
+});
+</script>
+{% endblock %} 

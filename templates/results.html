@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>구글 시트 데이터</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; }
+        select { width: 100%; padding: 8px; }
+        button { padding: 10px 20px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #45a049; }
+        #scheduleTime { display: none; }
+        input[type="datetime-local"] { width: 100%; padding: 8px; }
+    </style>
+</head>
+<body>
+    <h2>구글시트 글 목록</h2>
+    
+    <form method="post" action="/publish">
+        <div class="form-group">
+            <label>사용할 블로그 계정:</label>
+            <select name="account_name" required>
+                {% for name, acc in accounts.items() %}
+                    <option value="{{ name }}">{{ name }} ({{ acc.blog_url }})</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>발행 방식:</label>
+            <select name="mode" id="modeSelect" onchange="toggleSchedule()">
+                <option value="immediate">즉시 발행</option>
+                <option value="scheduled">예약 발행</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="scheduleTime">
+            <label>예약 시간:</label>
+            <input type="datetime-local" name="run_time">
+        </div>
+
+        <div class="form-group">
+            <label>글 선택:</label>
+            <select name="title" id="titleSelect" onchange="syncContent()" required>
+                {% for title, content in data %}
+                    <option value="{{ title }}">{{ title }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <input type="hidden" name="content" id="contentInput">
+
+        <button type="submit">발행</button>
+    </form>
+
+    <div style="margin-top: 20px;">
+        <a href="/">메인으로 돌아가기</a>
+    </div>
+
+    <script>
+        const dataMap = {
+            {% for title, content in data %}
+                "{{ title }}": `{{ content | replace('\n', ' ') | replace('"', '\\"') }}`,
+            {% endfor %}
+        };
+
+        function toggleSchedule() {
+            const mode = document.getElementById("modeSelect").value;
+            document.getElementById("scheduleTime").style.display = (mode === "scheduled") ? "block" : "none";
+        }
+
+        function syncContent() {
+            const selectedTitle = document.getElementById("titleSelect").value;
+            const content = dataMap[selectedTitle] || "";
+            document.getElementById("contentInput").value = content;
+        }
+
+        window.onload = syncContent;
+    </script>
+</body>
+</html> 

@@ -1,0 +1,309 @@
+{% extends "layout.html" %}
+
+{% block title %}구글 시트 연동{% endblock %}
+
+{% block content %}
+    <h2>구글 시트 데이터 설정</h2>
+    
+    <div class="credentials-section">
+        <h3>Google API 인증 설정</h3>
+        <form id="credentialsForm" action="/upload-credentials" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="credentials">credentials.json 파일 업로드:</label>
+                <input type="file" id="credentials" name="credentials" accept=".json">
+            </div>
+            <button type="submit">업로드</button>
+        </form>
+        <div id="uploadMessage" class="message" style="display: none; margin-top: 10px;"></div>
+    </div>
+
+    <div class="credentials-section">
+        <h3>구글 시트 설정</h3>
+        <form id="sheetForm" action="/fetch" method="post">
+            <div class="form-group">
+                <label for="sheet_url">구글 시트 URL:</label>
+                <input type="text" id="sheet_url" name="sheet_url" required>
+            </div>
+            <div class="form-group">
+                <label for="sheet_name">시트 이름:</label>
+                <input type="text" id="sheet_name" name="sheet_name" required>
+            </div>
+            <div class="form-group">
+                <label for="title_col">제목 열:</label>
+                <select id="title_col" name="title_col" required class="form-select">
+                    <option value="">열을 선택하세요</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="content_col">내용 열:</label>
+                <select id="content_col" name="content_col" required class="form-select">
+                    <option value="">열을 선택하세요</option>
+                </select>
+            </div>
+            <button type="submit">저장</button>
+        </form>
+    </div>
+
+    <div id="message" class="message" style="display: none;"></div>
+    <div id="error" class="error" style="display: none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// credentials.json 파일 업로드 처리
+document.getElementById('credentialsForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const formData = new FormData(this);
+    const uploadMessage = document.getElementById('uploadMessage');
+    
+    try {
+        const response = await fetch('/upload-credentials', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        uploadMessage.style.display = 'block';
+        
+        if (response.ok) {
+            uploadMessage.className = 'message success';
+            uploadMessage.textContent = result.message;
+            setTimeout(() => {
+                uploadMessage.style.display = 'none';
+            }, 3000);
+        } else {
+            uploadMessage.className = 'message error';
+            uploadMessage.textContent = result.error || '파일 업로드 중 오류가 발생했습니다.';
+        }
+    } catch (error) {
+        uploadMessage.className = 'message error';
+        uploadMessage.textContent = '파일 업로드 중 오류가 발생했습니다.';
+        uploadMessage.style.display = 'block';
+    }
+});
+
+// A부터 Z까지의 열 옵션 생성
+function populateColumnOptions() {
+    const columns = Array.from({length: 26}, (_, i) => String.fromCharCode(65 + i));
+    const titleSelect = document.getElementById('title_col');
+    const contentSelect = document.getElementById('content_col');
+    
+    columns.forEach(column => {
+        titleSelect.add(new Option(column, column));
+        contentSelect.add(new Option(column, column));
+    });
+
+    // 제목 열 선택 시 내용 열에서 해당 옵션 비활성화
+    titleSelect.addEventListener('change', function() {
+        updateContentOptions(this.value);
+    });
+
+    // 내용 열 선택 시 제목 열에서 해당 옵션 비활성화
+    contentSelect.addEventListener('change', function() {
+        updateTitleOptions(this.value);
+    });
+}
+
+// 내용 열 옵션 업데이트
+function updateContentOptions(selectedTitle) {
+    const contentSelect = document.getElementById('content_col');
+    const options = contentSelect.options;
+    
+    // 모든 옵션 활성화
+    for (let i = 0; i < options.length; i++) {
+        options[i].disabled = false;
+    }
+    
+    // 제목 열에서 선택된 값은 비활성화
+    if (selectedTitle) {
+        const option = contentSelect.querySelector(`option[value="${selectedTitle}"]`);
+        if (option) {
+            option.disabled = true;
+        }
+    }
+
+    // 현재 선택된 값이 비활성화된 경우 선택 해제
+    if (contentSelect.value === selectedTitle) {
+        contentSelect.value = '';
+    }
+}
+
+// 제목 열 옵션 업데이트
+function updateTitleOptions(selectedContent) {
+    const titleSelect = document.getElementById('title_col');
+    const options = titleSelect.options;
+    
+    // 모든 옵션 활성화
+    for (let i = 0; i < options.length; i++) {
+        options[i].disabled = false;
+    }
+    
+    // 내용 열에서 선택된 값은 비활성화
+    if (selectedContent) {
+        const option = titleSelect.querySelector(`option[value="${selectedContent}"]`);
+        if (option) {
+            option.disabled = true;
+        }
+    }
+
+    // 현재 선택된 값이 비활성화된 경우 선택 해제
+    if (titleSelect.value === selectedContent) {
+        titleSelect.value = '';
+    }
+}
+
+// 페이지 로드 시 열 옵션 생성
+document.addEventListener('DOMContentLoaded', function() {
+    populateColumnOptions();
+});
+
+function saveSheetData() {
+    const sheetUrl = document.getElementById('sheet_url').value;
+    const sheetName = document.getElementById('sheet_name').value;
+    const titleCol = document.getElementById('title_col').value;
+    const contentCol = document.getElementById('content_col').value;
+
+    const sheetData = {
+        url: sheetUrl,
+        name: sheetName,
+        titleCol: titleCol,
+        contentCol: contentCol
+    };
+
+    sessionStorage.setItem('sheetData', JSON.stringify(sheetData));
+}
+
+document.getElementById('sheetForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const message = document.getElementById('message');
+    const error = document.getElementById('error');
+    
+    try {
+        const formData = new FormData(this);
+        const response = await fetch('/fetch', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (response.ok) {
+            saveSheetData();
+            message.textContent = '설정이 성공적으로 저장되었습니다.';
+            message.className = 'message success';
+            message.style.display = 'block';
+            
+            // 3초 후에 성공 메시지만 숨김
+            setTimeout(() => {
+                message.style.display = 'none';
+            }, 3000);
+        } else {
+            const result = await response.json();
+            error.textContent = result.error || '저장 중 오류가 발생했습니다.';
+            error.style.display = 'block';
+            
+            // 에러 메시지도 3초 후에 숨김
+            setTimeout(() => {
+                error.style.display = 'none';
+            }, 3000);
+        }
+    } catch (err) {
+        error.textContent = '저장 중 오류가 발생했습니다: ' + err.message;
+        error.style.display = 'block';
+        
+        // 에러 메시지도 3초 후에 숨김
+        setTimeout(() => {
+            error.style.display = 'none';
+        }, 3000);
+    }
+});
+
+// 페이지 로드 시 이전에 저장된 값 복원
+window.addEventListener('load', function() {
+    const sheetData = JSON.parse(sessionStorage.getItem('sheetData') || '{}');
+    
+    if (sheetData.url) document.getElementById('sheet_url').value = sheetData.url;
+    if (sheetData.name) document.getElementById('sheet_name').value = sheetData.name;
+    if (sheetData.titleCol) {
+        document.getElementById('title_col').value = sheetData.titleCol;
+        updateContentOptions(sheetData.titleCol);
+    }
+    if (sheetData.contentCol) {
+        document.getElementById('content_col').value = sheetData.contentCol;
+        updateTitleOptions(sheetData.contentCol);
+    }
+});
+</script>
+
+<style>
+.message {
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.credentials-section {
+    background-color: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 15px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+}
+
+.form-select {
+    background-color: white;
+    cursor: pointer;
+}
+
+.form-select:focus {
+    border-color: #80bdff;
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba(0,123,255,.25);
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+.form-select option:disabled {
+    color: #999;
+    background-color: #f8f9fa;
+}
+</style>
+{% endblock %} 

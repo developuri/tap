@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>발행 완료</title>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .success-message { color: green; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <h1>발행 완료</h1>
+    
+    <div class="success-message">
+        <h3>{{ title }}</h3>
+        <p>{{ message | safe }}</p>
+    </div>
+
+    <div style="margin-top: 20px;">
+        <a href="/">메인으로 돌아가기</a> |
+        <a href="/status">발행 상태 확인</a>
+    </div>
+</body>
+</html> 

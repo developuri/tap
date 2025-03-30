@@ -1,0 +1,519 @@
+{% extends "layout.html" %}
+
+{% block title %}블로그 자동발행{% endblock %}
+
+{% block additional_styles %}
+<style>
+.post-list {
+    margin-top: 20px;
+}
+
+.post-item {
+    background-color: white;
+    padding: 20px;
+    margin-bottom: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: flex-start;
+}
+
+.post-checkbox {
+    margin-right: 15px;
+    margin-top: 3px;
+}
+
+.post-content-wrapper {
+    flex: 1;
+}
+
+.post-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+.post-content {
+    color: #34495e;
+    margin-bottom: 15px;
+    white-space: pre-wrap;
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.fetch-button, .reset-button, .publish-selected-button {
+    background-color: #3498db;
+    color: white;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    display: inline-flex;
+    align-items: center;
+    transition: background-color 0.3s;
+}
+
+.publish-selected-button {
+    background-color: #27ae60;
+}
+
+.publish-selected-button:hover {
+    background-color: #219a52;
+}
+
+.publish-selected-button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+.reset-button {
+    background-color: #e74c3c;
+    padding: 12px 20px;
+}
+
+.reset-button:hover {
+    background-color: #c0392b;
+}
+
+.reset-icon {
+    margin-right: 5px;
+    font-size: 18px;
+}
+
+.fetch-button:hover {
+    background-color: #2980b9;
+}
+
+.fetch-button:disabled, .reset-button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+.loading-spinner {
+    display: none;
+    margin-left: 10px;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.no-data {
+    text-align: center;
+    padding: 40px;
+    color: #7f8c8d;
+    font-size: 16px;
+    background-color: white;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.message {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 20px 0;
+    display: none;
+}
+
+.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    padding: 15px;
+    border-radius: 4px;
+    margin: 20px 0;
+    display: none;
+}
+
+.error-icon {
+    color: #dc3545;
+    margin-right: 8px;
+}
+
+.success-icon {
+    color: #28a745;
+    margin-right: 8px;
+}
+
+.select-all-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    background-color: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.select-all-container input[type="checkbox"] {
+    margin-right: 10px;
+}
+
+.select-all-container label {
+    font-weight: bold;
+    color: #2c3e50;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+    <h2>블로그 자동발행</h2>
+    
+    <div class="button-group">
+        <div class="action-buttons">
+            <button id="fetchButton" class="fetch-button">
+                구글 시트 데이터 가져오기
+                <div id="loadingSpinner" class="loading-spinner"></div>
+            </button>
+            <button id="resetButton" class="reset-button">
+                <span class="reset-icon">⟲</span> 초기화
+            </button>
+            <button id="publishSelectedButton" class="publish-selected-button" disabled>
+                선택한 글 발행하기
+            </button>
+        </div>
+    </div>
+
+    <div id="message" class="message" style="display: none;"></div>
+    <div id="error" class="error" style="display: none;"></div>
+
+    <div id="postList" class="post-list">
+        <div class="select-all-container" style="display: none;">
+            <input type="checkbox" id="selectAll">
+            <label for="selectAll">전체 선택</label>
+        </div>
+        <div id="noData" class="no-data">
+            구글 시트 데이터를 가져와주세요.
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 세션 스토리지에서 데이터 가져오기
+function getStoredPosts() {
+    const storedData = sessionStorage.getItem('posts');
+    return storedData ? JSON.parse(storedData) : null;
+}
+
+// 세션 스토리지에 데이터 저장
+function storePosts(posts) {
+    sessionStorage.setItem('posts', JSON.stringify(posts));
+}
+
+// 세션 스토리지의 데이터 초기화
+function resetData() {
+    sessionStorage.removeItem('posts');
+    const elements = getElements();
+    
+    if (elements.postList) {
+        elements.postList.innerHTML = '';
+        elements.postList.appendChild(elements.noData);
+    }
+    
+    if (elements.noData) {
+        elements.noData.style.display = 'block';
+        elements.noData.textContent = '구글 시트 데이터를 가져와주세요.';
+    }
+    
+    hideMessages();
+    showMessage('message', '<span class="success-icon">✓</span> 데이터가 초기화되었습니다.');
+    updatePublishButtonState();
+}
+
+// DOM 요소 가져오기 함수
+function getElements() {
+    return {
+        postList: document.getElementById('postList'),
+        noData: document.getElementById('noData'),
+        message: document.getElementById('message'),
+        error: document.getElementById('error'),
+        button: document.getElementById('fetchButton'),
+        resetButton: document.getElementById('resetButton'),
+        spinner: document.getElementById('loadingSpinner'),
+        publishButton: document.getElementById('publishSelectedButton'),
+        selectAll: document.getElementById('selectAll')
+    };
+}
+
+// 메시지 표시 함수
+function showMessage(type, text) {
+    const elements = getElements();
+    if (elements[type]) {
+        elements[type].innerHTML = text;
+        elements[type].style.display = 'block';
+    }
+}
+
+// 메시지 숨기기 함수
+function hideMessages() {
+    const elements = getElements();
+    if (elements.message) elements.message.style.display = 'none';
+    if (elements.error) elements.error.style.display = 'none';
+}
+
+// 선택된 글 수에 따라 발행 버튼 상태 업데이트
+function updatePublishButtonState() {
+    const elements = getElements();
+    const selectedPosts = document.querySelectorAll('.post-checkbox:checked');
+    if (elements.publishButton) {
+        elements.publishButton.disabled = selectedPosts.length === 0;
+    }
+}
+
+// 전체 선택 체크박스 상태 업데이트
+function updateSelectAllState() {
+    const elements = getElements();
+    const checkboxes = document.querySelectorAll('.post-checkbox');
+    const checkedBoxes = document.querySelectorAll('.post-checkbox:checked');
+    
+    if (elements.selectAll) {
+        elements.selectAll.checked = checkboxes.length > 0 && checkboxes.length === checkedBoxes.length;
+        elements.selectAll.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < checkboxes.length;
+    }
+}
+
+// 데이터를 화면에 표시하는 함수
+function displayData(posts) {
+    const elements = getElements();
+    
+    if (!elements.postList || !elements.noData) return;
+    
+    if (posts && posts.length > 0) {
+        elements.noData.style.display = 'none';
+        elements.postList.innerHTML = ''; // 기존 목록 초기화
+        
+        // 전체 선택 컨테이너 추가
+        const selectAllContainer = document.createElement('div');
+        selectAllContainer.className = 'select-all-container';
+        selectAllContainer.innerHTML = `
+            <input type="checkbox" id="selectAll">
+            <label for="selectAll">전체 선택</label>
+        `;
+        elements.postList.appendChild(selectAllContainer);
+        
+        // 전체 선택 이벤트 리스너 설정
+        const selectAll = selectAllContainer.querySelector('#selectAll');
+        selectAll.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.post-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updatePublishButtonState();
+        });
+        
+        posts.forEach(post => {
+            const postElement = document.createElement('div');
+            postElement.className = 'post-item';
+            
+            // HTML 이스케이프 처리
+            const title = post.title
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+            
+            const content = post.content
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+            
+            postElement.innerHTML = `
+                <input type="checkbox" class="post-checkbox" value="${title}">
+                <div class="post-content-wrapper">
+                    <div class="post-title">${title}</div>
+                    <div class="post-content">${content}</div>
+                </div>
+            `;
+            
+            // 체크박스 이벤트 리스너 설정
+            const checkbox = postElement.querySelector('.post-checkbox');
+            checkbox.addEventListener('change', function() {
+                updatePublishButtonState();
+                updateSelectAllState();
+            });
+            
+            elements.postList.appendChild(postElement);
+        });
+        
+        selectAllContainer.style.display = 'flex';
+        showMessage('message', '<span class="success-icon">✓</span> 데이터가 로드되었습니다.');
+        updatePublishButtonState();
+    } else {
+        elements.noData.style.display = 'block';
+        elements.noData.textContent = '가져올 데이터가 없습니다.';
+        document.querySelector('.select-all-container').style.display = 'none';
+    }
+}
+
+// 로딩 상태 설정 함수
+function setLoading(isLoading) {
+    const elements = getElements();
+    
+    if (elements.button) elements.button.disabled = isLoading;
+    if (elements.resetButton) elements.resetButton.disabled = isLoading;
+    if (elements.spinner) elements.spinner.style.display = isLoading ? 'block' : 'none';
+}
+
+async function fetchPosts(forceReload = false) {
+    // 강제 새로고침이 아니고 저장된 데이터가 있으면 그것을 사용
+    if (!forceReload) {
+        const storedPosts = getStoredPosts();
+        if (storedPosts) {
+            displayData(storedPosts);
+            return;
+        }
+    }
+    
+    setLoading(true);
+    hideMessages();
+    
+    try {
+        const response = await fetch('/fetch-posts', {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            if (data.posts && data.posts.length > 0) {
+                storePosts(data.posts);
+                displayData(data.posts);
+            } else {
+                const elements = getElements();
+                if (elements.noData) {
+                    elements.noData.style.display = 'block';
+                    elements.noData.textContent = '가져올 데이터가 없습니다.';
+                }
+            }
+        } else {
+            showMessage('error', `<span class="error-icon">⚠</span> ${data.error || '데이터를 가져오는 중 오류가 발생했습니다.'}`);
+            const elements = getElements();
+            if (elements.noData) {
+                elements.noData.style.display = 'block';
+                elements.noData.textContent = '데이터를 가져올 수 없습니다.';
+            }
+        }
+    } catch (err) {
+        showMessage('error', `<span class="error-icon">⚠</span> 데이터를 가져오는 중 오류가 발생했습니다: ${err.message}`);
+        const elements = getElements();
+        if (elements.noData) {
+            elements.noData.style.display = 'block';
+            elements.noData.textContent = '데이터를 가져올 수 없습니다.';
+        }
+    } finally {
+        setLoading(false);
+    }
+}
+
+// 페이지 로드 시 이벤트 리스너 등록
+document.addEventListener('DOMContentLoaded', function() {
+    const elements = getElements();
+    
+    if (elements.button) {
+        elements.button.addEventListener('click', () => fetchPosts(true));
+    }
+    
+    if (elements.resetButton) {
+        elements.resetButton.addEventListener('click', resetData);
+    }
+    
+    if (elements.publishButton) {
+        elements.publishButton.addEventListener('click', async function() {
+            const selectedPosts = Array.from(document.querySelectorAll('.post-checkbox:checked'))
+                .map(checkbox => {
+                    const postElement = checkbox.closest('.post-item');
+                    return {
+                        title: checkbox.value,
+                        content: postElement.querySelector('.post-content').textContent
+                    };
+                });
+            
+            if (selectedPosts.length === 0) {
+                showMessage('error', '<span class="error-icon">⚠</span> 발행할 글을 선택해주세요.');
+                return;
+            }
+
+            if (!confirm(`선택한 ${selectedPosts.length}개의 글을 발행하시겠습니까?`)) {
+                return;
+            }
+
+            try {
+                setLoading(true);
+                hideMessages();
+                showMessage('message', '<span class="success-icon">✓</span> 글 발행 중...');
+
+                const response = await fetch('/tistory-login/selected-posts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(selectedPosts)
+                });
+
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const results = data.results;
+                    const successCount = results.filter(r => r.status === '성공').length;
+                    const failCount = results.filter(r => r.status === '실패').length;
+                    
+                    let message = `<span class="success-icon">✓</span> 발행 완료<br>`;
+                    message += `성공: ${successCount}개, 실패: ${failCount}개<br><br>`;
+                    
+                    results.forEach(result => {
+                        const icon = result.status === '성공' ? '✓' : '⚠';
+                        message += `${icon} ${result.title}: ${result.message}<br>`;
+                    });
+                    
+                    showMessage('message', message);
+                } else {
+                    showMessage('error', `<span class="error-icon">⚠</span> ${data.error || '글 발행 중 오류가 발생했습니다.'}`);
+                }
+            } catch (err) {
+                showMessage('error', `<span class="error-icon">⚠</span> 오류가 발생했습니다: ${err.message}`);
+            } finally {
+                setLoading(false);
+            }
+        });
+    }
+    
+    // 페이지 로드 시 저장된 데이터가 있으면 표시
+    const storedPosts = getStoredPosts();
+    if (storedPosts) {
+        displayData(storedPosts);
+    }
+});
+</script>
+{% endblock %} 

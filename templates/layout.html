@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{% block title %}GPT-TAP{% endblock %}</title>
+    <meta charset="utf-8">
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0;
+            display: flex;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #2c3e50;
+            min-height: 100vh;
+            padding: 20px 0;
+            color: white;
+        }
+        .sidebar h1 {
+            padding: 0 20px;
+            margin: 0 0 20px 0;
+            font-size: 24px;
+        }
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar-menu li {
+            padding: 0;
+            margin: 0;
+        }
+        .sidebar-menu a {
+            display: block;
+            padding: 15px 20px;
+            color: #ecf0f1;
+            text-decoration: none;
+            transition: background-color 0.3s;
+        }
+        .sidebar-menu a:hover {
+            background-color: #34495e;
+        }
+        .sidebar-menu a.active {
+            background-color: #3498db;
+        }
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            background-color: #f5f6fa;
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        label { 
+            display: block; 
+            margin-bottom: 5px; 
+        }
+        input[type="text"], input[type="password"], select { 
+            width: 100%; 
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        button { 
+            padding: 10px 20px; 
+            background-color: #3498db; 
+            color: white; 
+            border: none; 
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover { 
+            background-color: #2980b9; 
+        }
+        button:disabled { 
+            background-color: #bdc3c7;
+            cursor: not-allowed; 
+        }
+        .message { 
+            color: #27ae60; 
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #d5f5e3;
+        }
+        .error { 
+            color: #c0392b; 
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            background-color: #fadbd8;
+        }
+        .credentials-section { 
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .loading {
+            display: none;
+            margin-left: 10px;
+            color: #7f8c8d;
+        }
+        {% block additional_styles %}{% endblock %}
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1>GPT-TAP</h1>
+        <ul class="sidebar-menu">
+            <li><a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>
+                구글 시트 연동
+            </a></li>
+            <li><a href="/publish" {% if request.url.path == "/publish" %}class="active"{% endif %}>
+                블로그 자동발행
+            </a></li>
+            <li><a href="/tistory-login" {% if request.url.path == "/tistory-login" %}class="active"{% endif %}>
+                티스토리 로그인
+            </a></li>
+        </ul>
+    </div>
+    
+    <div class="main-content">
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html> 
