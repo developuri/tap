@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Form, File, UploadFile, Body
+from fastapi import FastAPI, Request, Form, File, UploadFile, Body, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -30,6 +30,8 @@ from typing import List
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 import pyperclip
+from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="your-secret-key-here")
@@ -103,52 +105,42 @@ def decrypt_password(encrypted_password: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 async def read_form(request: Request):
-    sheet_data = request.session.get("sheet_data", {})
     return templates.TemplateResponse("form.html", {
-        "request": request, 
-        "state": state,
-        "sheet_url": sheet_data.get("url", ""),
-        "sheet_name": sheet_data.get("name", ""),
-        "columns": sheet_data.get("columns", [])
+        "request": request
     })
 
 @app.post("/upload-credentials")
-async def upload_credentials(credentials: UploadFile = File(...)):
+async def upload_credentials(file: UploadFile = File(...)):
     try:
-        with open("credentials.json", "wb") as f:
-            content = await credentials.read()
-            f.write(content)
-        return JSONResponse(content={"message": "credentials.json 파일이 성공적으로 업로드되었습니다."})
+        # 파일 저장 경로 설정
+        save_path = os.path.join(os.getcwd(), "credentials.json")
+        
+        # 파일 저장
+        contents = await file.read()
+        with open(save_path, "wb") as f:
+            f.write(contents)
+            
+        # accounts.json 파일 업데이트
+        accounts_data = {}
+        if os.path.exists("accounts.json"):
+            with open("accounts.json", "r", encoding="utf-8") as f:
+                accounts_data = json.load(f)
+        
+        # google_sheets 섹션이 없으면 생성
+        if "google_sheets" not in accounts_data:
+            accounts_data["google_sheets"] = {}
+        
+        # credentials_file 정보 업데이트
+        accounts_data["google_sheets"]["credentials_file"] = file.filename
+        
+        with open("accounts.json", "w", encoding="utf-8") as f:
+            json.dump(accounts_data, f, ensure_ascii=False, indent=4)
+        
+        return {"success": True, "message": "파일이 성공적으로 업로드되었습니다."}
     except Exception as e:
         return JSONResponse(
-            content={"error": f"파일 업로드 중 오류가 발생했습니다: {str(e)}"},
-            status_code=400
-        )
-
-@app.post("/fetch")
-async def fetch_data(
-    request: Request,
-    sheet_url: str = Form(...),
-    sheet_name: str = Form(...),
-    title_col: str = Form(...),
-    content_col: str = Form(...)
-):
-    try:
-        # 세션에 데이터 저장
-        request.session["sheet_data"] = {
-            "url": sheet_url,
-            "name": sheet_name,
-            "title_col": title_col,
-            "content_col": content_col
-        }
-        
-        return JSONResponse(content={"message": "설정이 성공적으로 저장되었습니다."})
-        
-    except Exception as e:
-        print(f"데이터 저장 오류: {str(e)}")  # 로그 추가
-        return JSONResponse(
-            content={"error": f"데이터를 저장하는 중 오류가 발생했습니다: {str(e)}"},
-            status_code=400
+            status_code=500,
+            content={"success": False, "error": f"파일 업로드 중 오류가 발생했습니다: {str(e)}"}
         )
 
 @app.get("/tistory-login", response_class=HTMLResponse)
@@ -230,7 +222,14 @@ async def login_process(
         options.set_capability('unhandledPromptBehavior', 'dismiss')  # alert 자동 닫기
         
         try:
-            service = Service(ChromeDriverManager().install())
+            # 로컬에 설치된 ChromeDriver 경로 설정
+            chrome_driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
+            
+            # ChromeDriver가 없으면 다운로드
+            if not os.path.exists(chrome_driver_path):
+                chrome_driver_path = ChromeDriverManager().install()
+
+            service = Service(chrome_driver_path)
             driver = webdriver.Chrome(service=service, options=options)
             driver.implicitly_wait(10)
             
@@ -650,69 +649,59 @@ def write_tistory_post(driver, title, content):
 
             # [3] Ctrl+V 붙여넣기 이벤트 실행
             ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
-            print("✅ 본문 내용 Ctrl+V 붙여넣기 완료")
+            print(f"[{account_name}] 본문 내용 Ctrl+V 붙여넣기 완료")
             time.sleep(1)
             
         except Exception as e:
             print(f"❌ 본문 입력 실패: {str(e)}")
             raise Exception(f"본문 입력 중 오류 발생: {str(e)}")
 
-        # 완료 버튼 클릭
-        print("완료 버튼 찾는 중...")
+        # 1. 완료 버튼 클릭
+        print(f"[{account_name}] 완료 버튼 찾는 중...")
         try:
-            # CSS 선택자로 시도
+            complete_button = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "button#publish-layer-btn.btn.btn-default"))
+            )
+            # 버튼이 보이도록 스크롤
+            driver.execute_script("arguments[0].scrollIntoView(true);", complete_button)
+            time.sleep(1)  # 스크롤 완료 대기
+            
+            # 버튼 클릭
+            driver.execute_script("arguments[0].click();", complete_button)
+            print(f"[{account_name}] 완료 버튼 클릭 완료")
+            time.sleep(2)  # 완료 클릭 후 팝업 등장 대기
+        except Exception as e:
+            print(f"[{account_name}] 완료 버튼 클릭 실패: {str(e)}")
+            # 다른 선택자로 재시도
             try:
                 complete_button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn_publish"))
+                    EC.presence_of_element_located((By.CSS_SELECTOR, ".btn-publish, .btn_publish"))
                 )
-                print("CSS 선택자로 완료 버튼 찾음")
-            except:
-                # XPath로 시도
-                complete_button = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), '완료')]"))
-                )
-                print("XPath로 완료 버튼 찾음")
+                driver.execute_script("arguments[0].scrollIntoView(true);", complete_button)
+                time.sleep(1)
+                driver.execute_script("arguments[0].click();", complete_button)
+                print(f"[{account_name}] 완료 버튼 클릭 완료 (대체 선택자)")
+                time.sleep(2)
+            except Exception as sub_e:
+                raise Exception(f"완료 버튼을 찾을 수 없습니다: {str(e)} / {str(sub_e)}")
 
-            print("완료 버튼 클릭")
-            driver.execute_script("arguments[0].click();", complete_button)
-            print("✅ 완료 버튼 클릭 완료")
-            time.sleep(2)  # 발행 화면으로 전환 대기
-        except Exception as e:
-            print(f"❌ 완료 버튼 클릭 실패: {str(e)}")
-            raise Exception("완료 버튼을 찾을 수 없거나 클릭할 수 없습니다.")
-
-        # 공개 발행 버튼 클릭
-        print("공개 발행 버튼 찾는 중...")
+        # 2. 공개 발행 버튼 클릭
+        print(f"[{account_name}] 공개 발행 버튼 찾는 중...")
         try:
-            # 여러 선택자로 시도
-            selectors = [
-                "button#publish-btn.btn.btn-default",
-                "button#publish-btn",
-                ".btn.btn-default#publish-btn"
-            ]
+            publish_button = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "button#publish-btn.btn.btn-default"))
+            )
+            # 버튼이 보이도록 스크롤
+            driver.execute_script("arguments[0].scrollIntoView(true);", publish_button)
+            time.sleep(1)  # 스크롤 완료 대기
             
-            publish_button = None
-            for selector in selectors:
-                try:
-                    publish_button = WebDriverWait(driver, 5).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                    )
-                    if publish_button:
-                        break
-                except:
-                    continue
-
-            if publish_button:
-                print("공개 발행 버튼 클릭")
-                driver.execute_script("arguments[0].click();", publish_button)
-                print("✅ 공개 발행 버튼 클릭 완료")
-                time.sleep(3)  # 발행 완료 대기
-            else:
-                raise Exception("공개 발행 버튼을 찾을 수 없습니다.")
-
+            # 버튼 클릭
+            driver.execute_script("arguments[0].click();", publish_button)
+            print(f"[{account_name}] 공개 발행 버튼 클릭 완료")
+            time.sleep(3)  # 발행 완료 대기
         except Exception as e:
-            print(f"❌ 공개 발행 버튼 클릭 실패: {str(e)}")
-            raise Exception(f"공개 발행 버튼 클릭 중 오류 발생: {str(e)}")
+            print(f"[{account_name}] 공개 발행 버튼 클릭 실패: {str(e)}")
+            raise Exception("공개 발행 버튼을 찾을 수 없습니다.")
 
         return True
 
@@ -874,16 +863,35 @@ async def fetch_posts(request: Request):
         ) 
 
 @app.post("/tistory-login/selected-posts")
-async def handle_selected_posts(request: Request, selected_posts: List[dict] = Body(...)):
-    try:
-        # 세션에서 계정 정보 가져오기
-        account_data = request.session.get("account_data", {})
-        if not account_data:
-            return JSONResponse(
-                content={"error": "로그인 정보가 없습니다. 먼저 티스토리에 로그인해주세요."},
-                status_code=400
-            )
+async def handle_selected_posts(request: Request, data: dict = Body(...)):
+    account_name = data.get("accountName")
+    selected_posts = data.get("posts", [])
 
+    print(f"\n[{account_name}] 글 발행 프로세스 시작...")
+
+    if not account_name:
+        return JSONResponse(
+            content={"error": "계정명이 전달되지 않았습니다."},
+            status_code=400
+        )
+
+    if not selected_posts:
+        return JSONResponse(
+            content={"error": "발행할 글이 선택되지 않았습니다."},
+            status_code=400
+        )
+
+    accounts = load_accounts()
+    account_data = accounts.get(account_name)
+
+    if not account_data:
+        return JSONResponse(
+            content={"error": "계정 정보를 찾을 수 없습니다."},
+            status_code=404
+        )
+
+    try:
+        print(f"[{account_name}] Chrome WebDriver 설정 중...")
         # Chrome WebDriver 설정
         options = webdriver.ChromeOptions()
         options.add_argument('--start-maximized')
@@ -894,20 +902,29 @@ async def handle_selected_posts(request: Request, selected_posts: List[dict] = B
         options.add_argument('--disable-popup-blocking')
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
         options.set_capability('unhandledPromptBehavior', 'dismiss')
+
+        # 로컬에 설치된 ChromeDriver 경로 설정
+        chrome_driver_path = os.path.join(os.getcwd(), 'chromedriver.exe')
+        print(f"[{account_name}] ChromeDriver 경로: {chrome_driver_path}")
         
-        service = Service(ChromeDriverManager().install())
+        # ChromeDriver가 없으면 다운로드
+        if not os.path.exists(chrome_driver_path):
+            print(f"[{account_name}] ChromeDriver 다운로드 중...")
+            chrome_driver_path = ChromeDriverManager().install()
+
+        service = Service(chrome_driver_path)
         driver = webdriver.Chrome(service=service, options=options)
         driver.implicitly_wait(10)
 
         try:
             # 카카오 로그인 페이지로 이동
+            print(f"[{account_name}] 카카오 로그인 페이지로 이동 중...")
             kakao_login_url = "https://accounts.kakao.com/login/?continue=https%3A%2F%2Fkauth.kakao.com%2Foauth%2Fauthorize%3Fclient_id%3D3e6ddd834b023f24221217e370daed18%26prompt%3Dselect_account%26redirect_uri%3Dhttps%253A%252F%252Fwww.tistory.com%252Fauth%252Fkakao%252Fredirect%26response_type%3Dcode"
-            print("카카오 로그인 페이지로 이동 중...")
             driver.get(kakao_login_url)
             time.sleep(2)
 
             # 로그인 정보 입력
-            print("로그인 정보 입력 중...")
+            print(f"[{account_name}] 로그인 정보 입력 중...")
             email_input = WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[name=loginId]"))
             )
@@ -918,17 +935,17 @@ async def handle_selected_posts(request: Request, selected_posts: List[dict] = B
                 EC.presence_of_element_located((By.CSS_SELECTOR, "input[name=password]"))
             )
             password_input.clear()
-            password_input.send_keys(decrypt_password(account_data["encrypted_password"]))
+            password_input.send_keys(account_data["password"])
 
             # 로그인 버튼 클릭
+            print(f"[{account_name}] 로그인 버튼 클릭...")
             login_button = WebDriverWait(driver, 20).until(
                 EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type=submit]"))
             )
             login_button.click()
-            print("로그인 시도 완료")
 
             # 로그인 후 페이지 전환 대기
-            print("페이지 전환 대기 중...")
+            print(f"[{account_name}] 로그인 후 페이지 전환 대기 중...")
             WebDriverWait(driver, 30).until(
                 lambda x: any([
                     "tistory.com/dashboard" in x.current_url,
@@ -939,48 +956,175 @@ async def handle_selected_posts(request: Request, selected_posts: List[dict] = B
             )
             time.sleep(5)
 
-            # 선택된 글들을 순차적으로 발행
             results = []
             for post in selected_posts:
                 try:
+                    print(f"\n[{account_name}] '{post['title']}' 글 발행 시작...")
+                    
                     # 글쓰기 페이지로 이동
                     write_url = f"https://{account_data['blog_url'].replace('.tistory.com', '')}.tistory.com/manage/newpost"
-                    print(f"글쓰기 페이지로 이동: {write_url}")
+                    print(f"[{account_name}] 글쓰기 페이지로 이동: {write_url}")
                     driver.get(write_url)
                     time.sleep(3)
 
                     # 저장된 글 알림창 처리
                     try:
+                        print(f"[{account_name}] 알림창 확인 중...")
                         alert = driver.switch_to.alert
                         alert.dismiss()
                         time.sleep(2)
+                        print(f"[{account_name}] 알림창 처리 완료")
                     except:
-                        pass
+                        print(f"[{account_name}] 알림창 없음")
 
-                    # 글 작성 및 발행
-                    if write_tistory_post(driver, post["title"], post["content"]):
-                        results.append({"title": post["title"], "status": "성공", "message": "글이 발행되었습니다."})
-                    else:
-                        results.append({"title": post["title"], "status": "실패", "message": "글 발행 중 오류가 발생했습니다."})
+                    # 제목 입력
+                    print(f"[{account_name}] 제목 입력 중...")
+                    title_input = WebDriverWait(driver, 20).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "textarea#post-title-inp"))
+                    )
+                    title_input.clear()
+                    title_input.send_keys(post["title"])
+                    print(f"[{account_name}] 제목 입력 완료")
+
+                    # HTML 모드 전환
+                    try:
+                        print(f"[{account_name}] HTML 모드 전환 시도...")
+                        time.sleep(2)  # 페이지 로드 대기
+
+                        # 1. '기본모드' 버튼 클릭
+                        mode_button = WebDriverWait(driver, 10).until(
+                            EC.element_to_be_clickable((By.XPATH, "//button[./span[text()='기본모드']]"))
+                        )
+                        driver.execute_script("arguments[0].click();", mode_button)
+                        print(f"[{account_name}] '기본모드' 클릭 완료")
+
+                        # 드롭다운 애니메이션 대기
+                        time.sleep(1.5)
+
+                        # 2. HTML 모드 div(id=editor-mode-html) 클릭
+                        WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.ID, "editor-mode-html"))
+                        )
+                        html_div = driver.find_element(By.ID, "editor-mode-html")
+                        driver.execute_script("arguments[0].click();", html_div)
+                        print(f"[{account_name}] HTML 버튼 클릭 완료")
+
+                        # HTML 클릭 후 모달창 뜨는 시간 대기
+                        time.sleep(1)
+
+                        # 3. 브라우저 alert 처리 (모드 변경 확인)
+                        print(f"[{account_name}] 모드 전환 확인창 대기 중...")
+                        WebDriverWait(driver, 5).until(EC.alert_is_present())
+                        alert = driver.switch_to.alert
+                        print(f"[{account_name}] 알림창 감지됨: {alert.text}")
+                        alert.accept()
+                        print(f"[{account_name}] 알림창 확인 클릭 완료")
+                        time.sleep(2)
+
+                    except Exception as e:
+                        print(f"[{account_name}] HTML 모드 전환 중 오류 발생: {str(e)}")
+                        raise Exception("HTML 모드 전환 실패")
+
+                    # HTML 본문 입력 - Codemirror 에디터 대상
+                    print(f"[{account_name}] 본문 입력 시도 중...")
+                    try:
+                        # 클립보드에 HTML 내용 저장
+                        print(f"[{account_name}] 클립보드에 본문 내용 복사 중...")
+                        pyperclip.copy(post["content"])
+                        print(f"[{account_name}] 클립보드에 본문 내용 복사 완료")
+
+                        # CodeMirror div 포커스
+                        print(f"[{account_name}] CodeMirror div 찾아서 클릭 중...")
+                        codemirror_div = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CLASS_NAME, "CodeMirror"))
+                        )
+                        ActionChains(driver).move_to_element(codemirror_div).click().perform()
+                        time.sleep(1)
+
+                        # Ctrl+V 붙여넣기 이벤트 실행
+                        ActionChains(driver).key_down(Keys.CONTROL).send_keys('v').key_up(Keys.CONTROL).perform()
+                        print(f"[{account_name}] 본문 내용 Ctrl+V 붙여넣기 완료")
+                        time.sleep(1)
+                        
+                    except Exception as e:
+                        print(f"[{account_name}] 본문 입력 실패: {str(e)}")
+                        raise Exception(f"본문 입력 중 오류 발생: {str(e)}")
+
+                    # 1. 완료 버튼 클릭
+                    print(f"[{account_name}] 완료 버튼 찾는 중...")
+                    try:
+                        complete_button = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "button#publish-layer-btn.btn.btn-default"))
+                        )
+                        # 버튼이 보이도록 스크롤
+                        driver.execute_script("arguments[0].scrollIntoView(true);", complete_button)
+                        time.sleep(1)  # 스크롤 완료 대기
+                        
+                        # 버튼 클릭
+                        driver.execute_script("arguments[0].click();", complete_button)
+                        print(f"[{account_name}] 완료 버튼 클릭 완료")
+                        time.sleep(2)  # 완료 클릭 후 팝업 등장 대기
+                    except Exception as e:
+                        print(f"[{account_name}] 완료 버튼 클릭 실패: {str(e)}")
+                        # 다른 선택자로 재시도
+                        try:
+                            complete_button = WebDriverWait(driver, 5).until(
+                                EC.presence_of_element_located((By.CSS_SELECTOR, ".btn-publish, .btn_publish"))
+                            )
+                            driver.execute_script("arguments[0].scrollIntoView(true);", complete_button)
+                            time.sleep(1)
+                            driver.execute_script("arguments[0].click();", complete_button)
+                            print(f"[{account_name}] 완료 버튼 클릭 완료 (대체 선택자)")
+                            time.sleep(2)
+                        except Exception as sub_e:
+                            raise Exception(f"완료 버튼을 찾을 수 없습니다: {str(e)} / {str(sub_e)}")
+
+                    # 2. 공개 발행 버튼 클릭
+                    print(f"[{account_name}] 공개 발행 버튼 찾는 중...")
+                    try:
+                        publish_button = WebDriverWait(driver, 10).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, "button#publish-btn.btn.btn-default"))
+                        )
+                        # 버튼이 보이도록 스크롤
+                        driver.execute_script("arguments[0].scrollIntoView(true);", publish_button)
+                        time.sleep(1)  # 스크롤 완료 대기
+                        
+                        # 버튼 클릭
+                        driver.execute_script("arguments[0].click();", publish_button)
+                        print(f"[{account_name}] 공개 발행 버튼 클릭 완료")
+                        time.sleep(3)  # 발행 완료 대기
+                    except Exception as e:
+                        print(f"[{account_name}] 공개 발행 버튼 클릭 실패: {str(e)}")
+                        raise Exception("공개 발행 버튼을 찾을 수 없습니다.")
+
+                    print(f"[{account_name}] '{post['title']}' 글 발행 완료")
+                    
+                    results.append({
+                        "title": post["title"],
+                        "status": "성공",
+                        "message": "발행 완료"
+                    })
 
                 except Exception as e:
-                    results.append({"title": post["title"], "status": "실패", "message": str(e)})
+                    print(f"[{account_name}] '{post['title']}' 글 발행 실패: {str(e)}")
+                    results.append({
+                        "title": post["title"],
+                        "status": "실패",
+                        "message": str(e)
+                    })
 
             return JSONResponse(content={"results": results})
 
-        except Exception as e:
-            return JSONResponse(
-                content={"error": f"글 발행 중 오류가 발생했습니다: {str(e)}"},
-                status_code=500
-            )
         finally:
+            print(f"[{account_name}] WebDriver 종료")
             driver.quit()
 
     except Exception as e:
+        print(f"[{account_name}] 전체 프로세스 실패: {str(e)}")
         return JSONResponse(
-            content={"error": f"오류가 발생했습니다: {str(e)}"},
+            content={"error": f"글 발행 중 오류가 발생했습니다: {str(e)}"},
             status_code=500
-        ) 
+        )
 
 @app.get("/get-account/{account_name}")
 async def get_account(account_name: str):
@@ -1038,5 +1182,194 @@ async def save_account_endpoint(
     except Exception as e:
         return JSONResponse(
             content={"error": f"계정 저장 중 오류가 발생했습니다: {str(e)}"},
+            status_code=500
+        ) 
+
+@app.post("/delete-account/{account_name}")
+async def delete_account(account_name: str):
+    try:
+        accounts = load_accounts()
+        if account_name in accounts:
+            del accounts[account_name]
+            with open("accounts.json", "w", encoding='utf-8') as f:
+                json.dump(accounts, f, ensure_ascii=False, indent=2)
+            return JSONResponse(content={"message": "계정이 성공적으로 삭제되었습니다."})
+        else:
+            return JSONResponse(
+                content={"error": "해당 계정을 찾을 수 없습니다."},
+                status_code=404
+            )
+    except Exception as e:
+        return JSONResponse(
+            content={"error": f"계정 삭제 중 오류가 발생했습니다: {str(e)}"},
+            status_code=500
+        ) 
+
+@app.get("/google-sheets/fetch-data")
+async def fetch_google_sheets_data():
+    try:
+        print("구글 시트 데이터 가져오기 시작...")
+        
+        # accounts.json에서 구글 시트 설정 읽기
+        if not os.path.exists("accounts.json"):
+            raise Exception("계정 설정 파일(accounts.json)이 없습니다.")
+            
+        with open('accounts.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            if 'google_sheets' not in config:
+                raise Exception("구글 시트 설정이 없습니다. 먼저 구글 시트를 설정해주세요.")
+            
+            sheets_config = config['google_sheets']
+            if not sheets_config.get('spreadsheet_id') or not sheets_config.get('sheet_name'):
+                raise Exception("구글 시트 ID 또는 시트 이름이 설정되지 않았습니다.")
+            
+            if not sheets_config.get('title_col') or not sheets_config.get('content_col'):
+                raise Exception("제목 열과 내용 열이 설정되지 않았습니다.")
+                
+        print(f"구글 시트 설정 확인: ID={sheets_config['spreadsheet_id']}, 시트명={sheets_config['sheet_name']}, 제목열={sheets_config['title_col']}, 내용열={sheets_config['content_col']}")
+
+        # credentials.json 파일 확인
+        if not os.path.exists("credentials.json"):
+            raise Exception("credentials.json 파일이 없습니다. 먼저 인증 파일을 업로드해주세요.")
+
+        try:
+            # 구글 시트 API 인증
+            print("구글 시트 API 인증 시도...")
+            scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+            credentials = Credentials.from_service_account_file(
+                'credentials.json',
+                scopes=scope
+            )
+            
+            # 구글 시트 서비스 생성
+            service = build('sheets', 'v4', credentials=credentials)
+            sheets = service.spreadsheets()
+            
+            # 설정된 열의 데이터 가져오기 (1행부터)
+            title_col = sheets_config['title_col']
+            content_col = sheets_config['content_col']
+            range_name = f"{sheets_config['sheet_name']}!{title_col}1:{content_col}"
+            print(f"데이터 범위 요청: {range_name}")
+            
+            result = sheets.values().get(
+                spreadsheetId=sheets_config['spreadsheet_id'],
+                range=range_name
+            ).execute()
+            
+            values = result.get('values', [])
+            print(f"가져온 데이터 행 수: {len(values)}")
+            
+            if not values:
+                print("가져온 데이터가 없습니다.")
+                return {"posts": []}
+            
+            # 데이터를 포스트 형식으로 변환
+            posts = []
+            title_idx = 0
+            content_idx = ord(content_col) - ord(title_col)
+            
+            for row in values:
+                if len(row) > content_idx:  # 제목과 내용이 모두 있는 경우만 처리
+                    title = row[title_idx].strip()
+                    content = row[content_idx].strip()
+                    if title and content:  # 빈 값이 아닌 경우만 추가
+                        posts.append({
+                            "title": title,
+                            "content": content
+                        })
+            
+            print(f"변환된 포스트 수: {len(posts)}")
+            return {"posts": posts}
+            
+        except Exception as e:
+            print(f"구글 시트 API 호출 중 오류: {str(e)}")
+            raise Exception(f"구글 시트에서 데이터를 가져오는 중 오류가 발생했습니다: {str(e)}")
+        
+    except Exception as e:
+        print(f"전체 프로세스 오류: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e)) 
+
+def get_credentials():
+    """구글 API 인증 정보를 가져오는 함수"""
+    try:
+        scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
+        credentials = Credentials.from_service_account_file(
+            'credentials.json',
+            scopes=scope
+        )
+        return credentials
+    except Exception as e:
+        raise Exception(f"인증 정보를 불러오는데 실패했습니다: {str(e)}") 
+
+@app.post("/save-google-sheet-settings")
+async def save_google_sheet_settings(data: dict = Body(...)):
+    try:
+        spreadsheet_id = data.get("spreadsheet_id")
+        sheet_name = data.get("sheet_name")
+        title_col = data.get("title_col")
+        content_col = data.get("content_col")
+        
+        if not spreadsheet_id or not sheet_name:
+            return JSONResponse(
+                content={"success": False, "error": "스프레드시트 ID와 시트 이름은 필수입니다."},
+                status_code=400
+            )
+        
+        if not title_col or not content_col:
+            return JSONResponse(
+                content={"success": False, "error": "제목열과 내용열은 필수입니다."},
+                status_code=400
+            )
+        
+        # accounts.json 파일 읽기
+        accounts = {}
+        if os.path.exists("accounts.json"):
+            with open("accounts.json", "r", encoding='utf-8') as f:
+                accounts = json.load(f)
+        
+        # google_sheets 설정 업데이트
+        accounts["google_sheets"] = {
+            "spreadsheet_id": spreadsheet_id,
+            "sheet_name": sheet_name,
+            "title_col": title_col,
+            "content_col": content_col
+        }
+        
+        # 파일 저장
+        with open("accounts.json", "w", encoding='utf-8') as f:
+            json.dump(accounts, f, ensure_ascii=False, indent=2)
+        
+        return JSONResponse(content={"success": True, "message": "구글 시트 설정이 저장되었습니다."})
+        
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": f"구글 시트 설정 저장 중 오류가 발생했습니다: {str(e)}"},
+            status_code=500
+        ) 
+
+@app.get("/get-google-sheet-settings")
+async def get_google_sheet_settings():
+    try:
+        if not os.path.exists("accounts.json"):
+            return JSONResponse(content={"settings": None})
+            
+        with open('accounts.json', 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            
+        settings = {}
+        
+        # 구글 시트 설정 가져오기
+        if 'google_sheets' in config:
+            settings.update(config['google_sheets'])
+            
+        # credentials.json 파일 정보 가져오기
+        if 'credentials_file' in config:
+            settings['credentials_file'] = config['credentials_file']
+            
+        return JSONResponse(content={"settings": settings})
+        
+    except Exception as e:
+        return JSONResponse(
+            content={"error": f"구글 시트 설정을 불러오는 중 오류가 발생했습니다: {str(e)}"},
             status_code=500
         ) 

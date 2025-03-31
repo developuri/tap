@@ -42,6 +42,34 @@
     overflow-y: auto;
 }
 
+.post-status {
+    margin-left: 10px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.status-waiting {
+    background-color: #f8f9fa;
+    color: #6c757d;
+}
+
+.status-publishing {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-completed {
+    background-color: #d4edda;
+    color: #155724;
+}
+
+.status-failed {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
 .button-group {
     display: flex;
     gap: 10px;
@@ -55,7 +83,7 @@
     align-items: center;
 }
 
-.fetch-button, .reset-button, .publish-selected-button {
+.fetch-button, .publish-selected-button {
     background-color: #3498db;
     color: white;
     padding: 12px 24px;
@@ -81,25 +109,11 @@
     cursor: not-allowed;
 }
 
-.reset-button {
-    background-color: #e74c3c;
-    padding: 12px 20px;
-}
-
-.reset-button:hover {
-    background-color: #c0392b;
-}
-
-.reset-icon {
-    margin-right: 5px;
-    font-size: 18px;
-}
-
 .fetch-button:hover {
     background-color: #2980b9;
 }
 
-.fetch-button:disabled, .reset-button:disabled {
+.fetch-button:disabled {
     background-color: #bdc3c7;
     cursor: not-allowed;
 }
@@ -190,9 +204,6 @@
                 구글 시트 데이터 가져오기
                 <div id="loadingSpinner" class="loading-spinner"></div>
             </button>
-            <button id="resetButton" class="reset-button">
-                <span class="reset-icon">⟲</span> 초기화
-            </button>
             <button id="publishSelectedButton" class="publish-selected-button" disabled>
                 선택한 글 발행하기
             </button>
@@ -215,6 +226,18 @@
 
 {% block scripts %}
 <script>
+// 선택된 포스트 가져오기 함수
+function getSelectedPosts() {
+    return Array.from(document.querySelectorAll('.post-checkbox:checked'))
+        .map(checkbox => {
+            const postElement = checkbox.closest('.post-item');
+            return {
+                title: checkbox.value,
+                content: postElement.querySelector('.post-content').textContent
+            };
+        });
+}
+
 // 세션 스토리지에서 데이터 가져오기
 function getStoredPosts() {
     const storedData = sessionStorage.getItem('posts');
@@ -228,22 +251,20 @@ function storePosts(posts) {
 
 // 세션 스토리지의 데이터 초기화
 function resetData() {
-    sessionStorage.removeItem('posts');
     const elements = getElements();
-    
     if (elements.postList) {
         elements.postList.innerHTML = '';
-        elements.postList.appendChild(elements.noData);
     }
-    
     if (elements.noData) {
         elements.noData.style.display = 'block';
-        elements.noData.textContent = '구글 시트 데이터를 가져와주세요.';
+        elements.noData.textContent = '데이터를 가져올 수 없습니다.';
     }
-    
+    if (elements.selectAllContainer) {
+        elements.selectAllContainer.style.display = 'none';
+    }
     hideMessages();
-    showMessage('message', '<span class="success-icon">✓</span> 데이터가 초기화되었습니다.');
     updatePublishButtonState();
+    showMessage('success', '데이터가 초기화되었습니다.');
 }
 
 // DOM 요소 가져오기 함수
@@ -253,11 +274,11 @@ function getElements() {
         noData: document.getElementById('noData'),
         message: document.getElementById('message'),
         error: document.getElementById('error'),
-        button: document.getElementById('fetchButton'),
-        resetButton: document.getElementById('resetButton'),
+        fetchButton: document.getElementById('fetchButton'),
         spinner: document.getElementById('loadingSpinner'),
         publishButton: document.getElementById('publishSelectedButton'),
-        selectAll: document.getElementById('selectAll')
+        selectAll: document.getElementById('selectAll'),
+        selectAllContainer: document.querySelector('.select-all-container')
     };
 }
 
@@ -301,103 +322,68 @@ function updateSelectAllState() {
 // 데이터를 화면에 표시하는 함수
 function displayData(posts) {
     const elements = getElements();
+    if (!elements.postList) return;
     
-    if (!elements.postList || !elements.noData) return;
+    elements.postList.innerHTML = '';
     
-    if (posts && posts.length > 0) {
-        elements.noData.style.display = 'none';
-        elements.postList.innerHTML = ''; // 기존 목록 초기화
-        
-        // 전체 선택 컨테이너 추가
-        const selectAllContainer = document.createElement('div');
-        selectAllContainer.className = 'select-all-container';
-        selectAllContainer.innerHTML = `
-            <input type="checkbox" id="selectAll">
-            <label for="selectAll">전체 선택</label>
-        `;
-        elements.postList.appendChild(selectAllContainer);
-        
-        // 전체 선택 이벤트 리스너 설정
-        const selectAll = selectAllContainer.querySelector('#selectAll');
-        selectAll.addEventListener('change', function() {
-            const checkboxes = document.querySelectorAll('.post-checkbox');
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = this.checked;
-            });
-            updatePublishButtonState();
-        });
-        
-        posts.forEach(post => {
-            const postElement = document.createElement('div');
-            postElement.className = 'post-item';
-            
-            // HTML 이스케이프 처리
-            const title = post.title
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-            
-            const content = post.content
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-            
-            postElement.innerHTML = `
-                <input type="checkbox" class="post-checkbox" value="${title}">
-                <div class="post-content-wrapper">
-                    <div class="post-title">${title}</div>
-                    <div class="post-content">${content}</div>
-                </div>
-            `;
-            
-            // 체크박스 이벤트 리스너 설정
-            const checkbox = postElement.querySelector('.post-checkbox');
-            checkbox.addEventListener('change', function() {
-                updatePublishButtonState();
-                updateSelectAllState();
-            });
-            
-            elements.postList.appendChild(postElement);
-        });
-        
-        selectAllContainer.style.display = 'flex';
-        showMessage('message', '<span class="success-icon">✓</span> 데이터가 로드되었습니다.');
-        updatePublishButtonState();
-    } else {
-        elements.noData.style.display = 'block';
-        elements.noData.textContent = '가져올 데이터가 없습니다.';
-        document.querySelector('.select-all-container').style.display = 'none';
+    if (posts.length === 0) {
+        if (elements.noData) {
+            elements.noData.style.display = 'block';
+            elements.noData.textContent = '가져올 데이터가 없습니다.';
+        }
+        if (elements.selectAllContainer) {
+            elements.selectAllContainer.style.display = 'none';
+        }
+        return;
     }
+    
+    if (elements.selectAllContainer) {
+        elements.selectAllContainer.style.display = 'flex';
+    }
+    if (elements.noData) {
+        elements.noData.style.display = 'none';
+    }
+    
+    posts.forEach(post => {
+        const postElement = document.createElement('div');
+        postElement.className = 'post-item';
+        postElement.innerHTML = `
+            <input type="checkbox" class="post-checkbox" value="${post.title}">
+            <div class="post-content-wrapper">
+                <div style="display: flex; align-items: center;">
+                    <div class="post-title">${post.title}</div>
+                    <div class="post-status status-waiting">대기중</div>
+                </div>
+                <div class="post-content">${post.content}</div>
+            </div>
+        `;
+        
+        const checkbox = postElement.querySelector('.post-checkbox');
+        checkbox.addEventListener('change', function() {
+            updatePublishButtonState();
+            updateSelectAllState();
+        });
+        
+        elements.postList.appendChild(postElement);
+    });
+    
+    updatePublishButtonState();
 }
 
 // 로딩 상태 설정 함수
 function setLoading(isLoading) {
     const elements = getElements();
     
-    if (elements.button) elements.button.disabled = isLoading;
-    if (elements.resetButton) elements.resetButton.disabled = isLoading;
+    if (elements.fetchButton) elements.fetchButton.disabled = isLoading;
     if (elements.spinner) elements.spinner.style.display = isLoading ? 'block' : 'none';
 }
 
-async function fetchPosts(forceReload = false) {
-    // 강제 새로고침이 아니고 저장된 데이터가 있으면 그것을 사용
-    if (!forceReload) {
-        const storedPosts = getStoredPosts();
-        if (storedPosts) {
-            displayData(storedPosts);
-            return;
-        }
-    }
-    
+async function fetchPosts() {
     setLoading(true);
     hideMessages();
     
     try {
-        const response = await fetch('/fetch-posts', {
+        const response = await fetch('/google-sheets/fetch-data', {
             method: 'GET',
             headers: {
                 'Accept': 'application/json'
@@ -408,17 +394,19 @@ async function fetchPosts(forceReload = false) {
         
         if (response.ok) {
             if (data.posts && data.posts.length > 0) {
-                storePosts(data.posts);
+                sessionStorage.setItem('posts', JSON.stringify(data.posts));
                 displayData(data.posts);
+                showMessage('success', '구글 시트에서 데이터를 성공적으로 가져왔습니다.');
             } else {
                 const elements = getElements();
                 if (elements.noData) {
                     elements.noData.style.display = 'block';
                     elements.noData.textContent = '가져올 데이터가 없습니다.';
                 }
+                showMessage('error', '<span class="error-icon">⚠</span> 구글 시트에서 가져올 데이터가 없습니다.');
             }
         } else {
-            showMessage('error', `<span class="error-icon">⚠</span> ${data.error || '데이터를 가져오는 중 오류가 발생했습니다.'}`);
+            showMessage('error', `<span class="error-icon">⚠</span> ${data.error || '구글 시트에서 데이터를 가져오는 중 오류가 발생했습니다.'}`);
             const elements = getElements();
             if (elements.noData) {
                 elements.noData.style.display = 'block';
@@ -426,7 +414,7 @@ async function fetchPosts(forceReload = false) {
             }
         }
     } catch (err) {
-        showMessage('error', `<span class="error-icon">⚠</span> 데이터를 가져오는 중 오류가 발생했습니다: ${err.message}`);
+        showMessage('error', `<span class="error-icon">⚠</span> 구글 시트에서 데이터를 가져오는 중 오류가 발생했습니다: ${err.message}`);
         const elements = getElements();
         if (elements.noData) {
             elements.noData.style.display = 'block';
@@ -437,82 +425,157 @@ async function fetchPosts(forceReload = false) {
     }
 }
 
+// 발행된 포스트 제거 함수
+function removePublishedPosts(publishedPosts) {
+    // 발행된 포스트의 제목 목록 생성
+    const publishedTitles = publishedPosts.map(post => post.title);
+    
+    // 현재 저장된 포스트 데이터 가져오기
+    let storedPosts = getStoredPosts();
+    if (!storedPosts) return;
+    
+    // 발행된 포스트를 화면에서 제거
+    publishedTitles.forEach(title => {
+        const checkbox = document.querySelector(`.post-checkbox[value="${title}"]`);
+        if (checkbox) {
+            const postElement = checkbox.closest('.post-item');
+            if (postElement) {
+                postElement.remove();
+            }
+        }
+    });
+    
+    // 세션 스토리지의 데이터에서도 제거
+    storedPosts = storedPosts.filter(post => !publishedTitles.includes(post.title));
+    storePosts(storedPosts);
+    
+    // 남은 포스트가 없으면 "데이터 없음" 메시지 표시
+    if (storedPosts.length === 0) {
+        const elements = getElements();
+        if (elements.noData) {
+            elements.noData.style.display = 'block';
+            elements.noData.textContent = '가져올 데이터가 없습니다.';
+        }
+        // 전체 선택 컨테이너 숨기기
+        const selectAllContainer = document.querySelector('.select-all-container');
+        if (selectAllContainer) {
+            selectAllContainer.style.display = 'none';
+        }
+    }
+    
+    // 발행 버튼 상태 업데이트
+    updatePublishButtonState();
+    // 전체 선택 체크박스 상태 업데이트
+    updateSelectAllState();
+}
+
+async function publishSelectedPosts() {
+    const selectedPosts = getSelectedPosts();
+    if (selectedPosts.length === 0) {
+        showMessage('error', '<span class="error-icon">⚠</span> 발행할 글을 선택해주세요.');
+        return;
+    }
+
+    // 선택된 계정 가져오기
+    const accountSelect = document.getElementById('accountSelect');
+    const selectedAccount = accountSelect.value;
+    
+    if (!selectedAccount) {
+        showMessage('error', '<span class="error-icon">⚠</span> 계정을 선택해주세요.');
+        return;
+    }
+
+    // 선택된 글들의 상태를 '발행중'으로 변경
+    selectedPosts.forEach(post => {
+        const postElement = document.querySelector(`.post-checkbox[value="${post.title}"]`).closest('.post-item');
+        const statusElement = postElement.querySelector('.post-status');
+        statusElement.className = 'post-status status-publishing';
+        statusElement.textContent = '발행중';
+    });
+
+    // 발행 버튼 비활성화
+    const publishButton = document.getElementById('publishSelectedButton');
+    publishButton.disabled = true;
+
+    // 서버에 발행 요청
+    fetch('/tistory-login/selected-posts', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            accountName: selectedAccount,
+            posts: selectedPosts
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // 각 글의 발행 결과에 따라 상태 업데이트
+        data.results.forEach(result => {
+            const postElement = document.querySelector(`.post-checkbox[value="${result.title}"]`).closest('.post-item');
+            const statusElement = postElement.querySelector('.post-status');
+            
+            if (result.status === '성공') {
+                statusElement.className = 'post-status status-completed';
+                statusElement.textContent = '발행완료';
+            } else {
+                statusElement.className = 'post-status status-failed';
+                statusElement.textContent = '발행실패';
+            }
+        });
+
+        showMessage("선택한 글이 발행되었습니다.");
+    })
+    .catch(error => {
+        showMessage('error', '<span class="error-icon">⚠</span> 글 발행 중 오류가 발생했습니다: ' + error.message);
+        // 에러 발생 시 발행 중이던 글들의 상태를 '실패'로 변경
+        selectedPosts.forEach(post => {
+            const postElement = document.querySelector(`.post-checkbox[value="${post.title}"]`).closest('.post-item');
+            const statusElement = postElement.querySelector('.post-status');
+            statusElement.className = 'post-status status-failed';
+            statusElement.textContent = '발행실패';
+        });
+    })
+    .finally(() => {
+        // 발행 버튼 활성화
+        publishButton.disabled = false;
+        updatePublishButtonState();
+    });
+}
+
 // 페이지 로드 시 이벤트 리스너 등록
 document.addEventListener('DOMContentLoaded', function() {
     const elements = getElements();
     
-    if (elements.button) {
-        elements.button.addEventListener('click', () => fetchPosts(true));
+    // 구글 시트 데이터 가져오기 버튼
+    if (elements.fetchButton) {
+        elements.fetchButton.addEventListener('click', fetchPosts);
     }
     
-    if (elements.resetButton) {
-        elements.resetButton.addEventListener('click', resetData);
-    }
-    
+    // 선택한 글 발행하기 버튼
     if (elements.publishButton) {
-        elements.publishButton.addEventListener('click', async function() {
-            const selectedPosts = Array.from(document.querySelectorAll('.post-checkbox:checked'))
-                .map(checkbox => {
-                    const postElement = checkbox.closest('.post-item');
-                    return {
-                        title: checkbox.value,
-                        content: postElement.querySelector('.post-content').textContent
-                    };
-                });
-            
-            if (selectedPosts.length === 0) {
-                showMessage('error', '<span class="error-icon">⚠</span> 발행할 글을 선택해주세요.');
-                return;
-            }
-
-            if (!confirm(`선택한 ${selectedPosts.length}개의 글을 발행하시겠습니까?`)) {
-                return;
-            }
-
-            try {
-                setLoading(true);
-                hideMessages();
-                showMessage('message', '<span class="success-icon">✓</span> 글 발행 중...');
-
-                const response = await fetch('/tistory-login/selected-posts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(selectedPosts)
-                });
-
-                const data = await response.json();
-                
-                if (response.ok) {
-                    const results = data.results;
-                    const successCount = results.filter(r => r.status === '성공').length;
-                    const failCount = results.filter(r => r.status === '실패').length;
-                    
-                    let message = `<span class="success-icon">✓</span> 발행 완료<br>`;
-                    message += `성공: ${successCount}개, 실패: ${failCount}개<br><br>`;
-                    
-                    results.forEach(result => {
-                        const icon = result.status === '성공' ? '✓' : '⚠';
-                        message += `${icon} ${result.title}: ${result.message}<br>`;
-                    });
-                    
-                    showMessage('message', message);
-                } else {
-                    showMessage('error', `<span class="error-icon">⚠</span> ${data.error || '글 발행 중 오류가 발생했습니다.'}`);
-                }
-            } catch (err) {
-                showMessage('error', `<span class="error-icon">⚠</span> 오류가 발생했습니다: ${err.message}`);
-            } finally {
-                setLoading(false);
-            }
+        elements.publishButton.addEventListener('click', publishSelectedPosts);
+    }
+    
+    // 전체 선택 체크박스
+    if (elements.selectAll) {
+        elements.selectAll.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.post-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updatePublishButtonState();
         });
     }
-    
+
     // 페이지 로드 시 저장된 데이터가 있으면 표시
-    const storedPosts = getStoredPosts();
+    const storedPosts = sessionStorage.getItem('posts');
     if (storedPosts) {
-        displayData(storedPosts);
+        displayData(JSON.parse(storedPosts));
     }
 });
 </script>

@@ -54,7 +54,10 @@
             </div>
         </div>
         
-        <button type="submit" class="btn btn-primary mt-4">계정 저장</button>
+        <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">계정 저장</button>
+            <button type="button" class="btn btn-danger" id="deleteBtn" style="display: none;">계정 삭제</button>
+        </div>
     </form>
 </div>
 
@@ -67,9 +70,12 @@ document.getElementById('show_password').addEventListener('change', function() {
 // 페이지 로드 시 저장된 계정 선택 상태 복원
 document.addEventListener('DOMContentLoaded', async function() {
     const savedAccount = sessionStorage.getItem('selectedAccount');
+    const deleteBtn = document.getElementById('deleteBtn');
+    
     if (savedAccount) {
         const accountSelect = document.getElementById('account_select');
         accountSelect.value = savedAccount;
+        deleteBtn.style.display = 'inline-block';  // 저장된 계정이 있으면 삭제 버튼 표시
         
         // 저장된 계정 정보 불러오기
         try {
@@ -90,6 +96,10 @@ document.addEventListener('DOMContentLoaded', async function() {
 // 계정 선택 시 정보 불러오기
 document.getElementById('account_select').addEventListener('change', async function() {
     const selectedAccount = this.value;
+    const deleteBtn = document.getElementById('deleteBtn');
+    
+    // 삭제 버튼 표시/숨김 처리
+    deleteBtn.style.display = selectedAccount ? 'inline-block' : 'none';
     
     // 선택된 계정을 세션 스토리지에 저장
     if (selectedAccount) {
@@ -118,6 +128,31 @@ document.getElementById('account_select').addEventListener('change', async funct
         document.getElementById('password').value = data.password;
     } catch (error) {
         alert('계정 정보를 불러오는 중 오류가 발생했습니다: ' + error.message);
+    }
+});
+
+// 계정 삭제 기능
+document.getElementById('deleteBtn').addEventListener('click', async function() {
+    const selectedAccount = document.getElementById('account_select').value;
+    if (!selectedAccount) return;
+
+    if (!confirm('정말로 이 계정을 삭제하시겠습니까?')) return;
+
+    try {
+        const response = await fetch(`/delete-account/${selectedAccount}`, {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            alert('계정이 성공적으로 삭제되었습니다.');
+            sessionStorage.removeItem('selectedAccount');
+            location.reload();  // 페이지 새로고침하여 계정 목록 업데이트
+        } else {
+            alert('계정 삭제 중 오류가 발생했습니다: ' + result.error);
+        }
+    } catch (error) {
+        alert('계정 삭제 중 오류가 발생했습니다: ' + error.message);
     }
 });
 
