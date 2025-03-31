@@ -2,84 +2,269 @@
 
 {% block title %}티스토리 계정 관리{% endblock %}
 
-{% block content %}
-<div class="container mt-5">
-    <h2>티스토리 계정 관리</h2>
-    
-    {% if error %}
-    <div class="alert alert-danger" role="alert">
-        {{ error }}
-    </div>
-    {% endif %}
-    
-    {% if message %}
-    <div class="alert alert-success" role="alert">
-        {{ message }}
-    </div>
-    {% endif %}
+{% block additional_styles %}
+<style>
+.page-wrapper {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
 
-    <div class="form-group mt-3">
-        <label for="account_select">블로그 선택:</label>
-        <select class="form-select" id="account_select">
-            <option value="">새 블로그 추가</option>
-            {% for account in accounts %}
-            <option value="{{ account }}">{{ account }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    
-    <form method="post" action="/save-account" class="mt-4" id="accountForm">
-        <div class="form-group">
-            <label for="account_name">블로그 이름:</label>
-            <input type="text" class="form-control" id="account_name" name="account_name" value="{{ account_name }}" required>
-        </div>
-        
-        <div class="form-group mt-3">
-            <label for="blog_url">블로그 주소:</label>
-            <input type="text" class="form-control" id="blog_url" name="blog_url" value="{{ blog_url }}" placeholder="예: myblog.tistory.com" required>
-            <small class="form-text text-muted">전체 블로그 주소를 입력해주세요. (예: myblog.tistory.com)</small>
-        </div>
-        
-        <div class="form-group mt-3">
-            <label for="user_id">카카오 ID:</label>
-            <input type="text" class="form-control" id="user_id" name="user_id" value="{{ user_id }}" required>
-        </div>
-        
-        <div class="form-group mt-3">
-            <label for="password">비밀번호:</label>
-            <input type="password" class="form-control" id="password" name="password" value="{{ password }}" required>
-            <div class="form-check mt-2">
-                <input type="checkbox" class="form-check-input" id="show_password">
-                <label class="form-check-label" for="show_password">비밀번호 표시</label>
+.container {
+    display: flex;
+    gap: 30px;
+    width: 100%;
+    align-items: stretch;
+}
+
+.form-container {
+    flex: 2;
+    background-color: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.accounts-list {
+    flex: 1;
+    background-color: white;
+    padding: 30px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+}
+
+#accountsList {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 20px;
+}
+
+.account-item {
+    padding: 15px;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.account-item:hover {
+    background-color: #f8f9fa;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.account-item.active {
+    border-color: #3498db;
+    background-color: #ebf5fb;
+}
+
+.account-name {
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 5px;
+}
+
+.account-url {
+    color: #7f8c8d;
+    font-size: 0.9em;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+.form-control {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.3s;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #2980b9;
+}
+
+.btn-danger {
+    background-color: #e74c3c;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c0392b;
+}
+
+.btn-new {
+    background-color: #2ecc71;
+    color: white;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+.btn-new:hover {
+    background-color: #27ae60;
+}
+
+.form-check {
+    margin-top: 10px;
+}
+
+.alert {
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+}
+
+.section-title {
+    margin: 0 0 20px 0;
+    color: #2c3e50;
+    font-size: 1.2em;
+}
+
+.page-title {
+    margin-bottom: 30px;
+    color: #2c3e50;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-wrapper">
+    <h2 class="page-title">티스토리 계정 관리</h2>
+
+    <div class="container">
+        <div class="accounts-list">
+            <h3 class="section-title">저장된 블로그 목록</h3>
+            <button type="button" class="btn btn-new" id="newAccountBtn">새 블로그 추가</button>
+            <div id="accountsList">
+                {% for name, account in accounts.items() %}
+                {% if name != "credentials_file" %}
+                <div class="account-item" data-account="{{ name }}">
+                    <div class="account-name">{{ name }}</div>
+                    <div class="account-url">{{ account.blog_url }}</div>
+                </div>
+                {% endif %}
+                {% endfor %}
             </div>
         </div>
-        
-        <div class="mt-4 d-flex gap-2">
-            <button type="submit" class="btn btn-primary">계정 저장</button>
-            <button type="button" class="btn btn-danger" id="deleteBtn" style="display: none;">계정 삭제</button>
-        </div>
-    </form>
-</div>
 
+        <div class="form-container">
+            {% if error %}
+            <div class="alert alert-danger">
+                {{ error }}
+            </div>
+            {% endif %}
+            
+            {% if message %}
+            <div class="alert alert-success">
+                {{ message }}
+            </div>
+            {% endif %}
+
+            <form method="post" action="/save-account" id="accountForm">
+                <div class="form-group">
+                    <label for="account_name">블로그 이름:</label>
+                    <input type="text" class="form-control" id="account_name" name="account_name" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="blog_url">블로그 주소:</label>
+                    <input type="text" class="form-control" id="blog_url" name="blog_url" placeholder="예: myblog.tistory.com" required>
+                    <small class="form-text text-muted">전체 블로그 주소를 입력해주세요. (예: myblog.tistory.com)</small>
+                </div>
+                
+                <div class="form-group">
+                    <label for="user_id">카카오 ID:</label>
+                    <input type="text" class="form-control" id="user_id" name="user_id" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="password">비밀번호:</label>
+                    <input type="password" class="form-control" id="password" name="password" required>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="show_password">
+                        <label class="form-check-label" for="show_password">비밀번호 표시</label>
+                    </div>
+                </div>
+                
+                <div class="button-group">
+                    <button type="submit" class="btn btn-primary">계정 저장</button>
+                    <button type="button" class="btn btn-danger" id="deleteBtn" style="display: none;">계정 삭제</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
 <script>
 document.getElementById('show_password').addEventListener('change', function() {
     var passwordInput = document.getElementById('password');
     passwordInput.type = this.checked ? 'text' : 'password';
 });
 
-// 페이지 로드 시 저장된 계정 선택 상태 복원
-document.addEventListener('DOMContentLoaded', async function() {
-    const savedAccount = sessionStorage.getItem('selectedAccount');
-    const deleteBtn = document.getElementById('deleteBtn');
-    
-    if (savedAccount) {
-        const accountSelect = document.getElementById('account_select');
-        accountSelect.value = savedAccount;
-        deleteBtn.style.display = 'inline-block';  // 저장된 계정이 있으면 삭제 버튼 표시
+// 새 블로그 추가 버튼 클릭 처리
+document.getElementById('newAccountBtn').addEventListener('click', function() {
+    clearForm();
+    document.getElementById('deleteBtn').style.display = 'none';
+    document.querySelectorAll('.account-item').forEach(item => {
+        item.classList.remove('active');
+    });
+});
+
+// 계정 항목 클릭 처리
+document.querySelectorAll('.account-item').forEach(item => {
+    item.addEventListener('click', async function() {
+        const accountName = this.dataset.account;
+        document.querySelectorAll('.account-item').forEach(i => {
+            i.classList.remove('active');
+        });
+        this.classList.add('active');
         
-        // 저장된 계정 정보 불러오기
         try {
-            const response = await fetch(`/get-account/${savedAccount}`);
+            const response = await fetch(`/get-account/${accountName}`);
             if (!response.ok) throw new Error('계정 정보를 불러올 수 없습니다.');
             
             const data = await response.json();
@@ -87,67 +272,37 @@ document.addEventListener('DOMContentLoaded', async function() {
             document.getElementById('blog_url').value = data.blog_url;
             document.getElementById('user_id').value = data.user_id;
             document.getElementById('password').value = data.password;
+            document.getElementById('deleteBtn').style.display = 'inline-block';
         } catch (error) {
-            console.error('계정 정보를 불러오는 중 오류가 발생했습니다:', error);
+            alert('계정 정보를 불러오는 중 오류가 발생했습니다: ' + error.message);
         }
-    }
+    });
 });
 
-// 계정 선택 시 정보 불러오기
-document.getElementById('account_select').addEventListener('change', async function() {
-    const selectedAccount = this.value;
-    const deleteBtn = document.getElementById('deleteBtn');
-    
-    // 삭제 버튼 표시/숨김 처리
-    deleteBtn.style.display = selectedAccount ? 'inline-block' : 'none';
-    
-    // 선택된 계정을 세션 스토리지에 저장
-    if (selectedAccount) {
-        sessionStorage.setItem('selectedAccount', selectedAccount);
-    } else {
-        sessionStorage.removeItem('selectedAccount');
-    }
-    
-    if (!selectedAccount) {
-        // 새 계정 추가 선택 시 폼 초기화
-        document.getElementById('account_name').value = '';
-        document.getElementById('blog_url').value = '';
-        document.getElementById('user_id').value = '';
-        document.getElementById('password').value = '';
-        return;
-    }
-
-    try {
-        const response = await fetch(`/get-account/${selectedAccount}`);
-        if (!response.ok) throw new Error('계정 정보를 불러올 수 없습니다.');
-        
-        const data = await response.json();
-        document.getElementById('account_name').value = data.account_name;
-        document.getElementById('blog_url').value = data.blog_url;
-        document.getElementById('user_id').value = data.user_id;
-        document.getElementById('password').value = data.password;
-    } catch (error) {
-        alert('계정 정보를 불러오는 중 오류가 발생했습니다: ' + error.message);
-    }
-});
+// 폼 초기화 함수
+function clearForm() {
+    document.getElementById('account_name').value = '';
+    document.getElementById('blog_url').value = '';
+    document.getElementById('user_id').value = '';
+    document.getElementById('password').value = '';
+}
 
 // 계정 삭제 기능
 document.getElementById('deleteBtn').addEventListener('click', async function() {
-    const selectedAccount = document.getElementById('account_select').value;
-    if (!selectedAccount) return;
+    const accountName = document.getElementById('account_name').value;
+    if (!accountName) return;
 
     if (!confirm('정말로 이 계정을 삭제하시겠습니까?')) return;
 
     try {
-        const response = await fetch(`/delete-account/${selectedAccount}`, {
+        const response = await fetch(`/delete-account/${accountName}`, {
             method: 'POST'
         });
         
         const result = await response.json();
         if (response.ok) {
             alert('계정이 성공적으로 삭제되었습니다.');
-            sessionStorage.removeItem('selectedAccount');
-            location.reload();  // 페이지 새로고침하여 계정 목록 업데이트
+            location.reload();
         } else {
             alert('계정 삭제 중 오류가 발생했습니다: ' + result.error);
         }
@@ -170,9 +325,7 @@ document.getElementById('accountForm').addEventListener('submit', async function
         const result = await response.json();
         if (response.ok) {
             alert('계정이 성공적으로 저장되었습니다.');
-            // 새로 저장된 계정을 세션 스토리지에 저장
-            sessionStorage.setItem('selectedAccount', formData.get('account_name'));
-            location.reload();  // 페이지 새로고침하여 계정 목록 업데이트
+            location.reload();
         } else {
             alert('계정 저장 중 오류가 발생했습니다: ' + result.error);
         }

@@ -32,6 +32,7 @@ from selenium.webdriver.common.keys import Keys
 import pyperclip
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
+import re
 
 app = FastAPI()
 app.add_middleware(SessionMiddleware, secret_key="your-secret-key-here")
@@ -120,21 +121,10 @@ async def upload_credentials(file: UploadFile = File(...)):
         with open(save_path, "wb") as f:
             f.write(contents)
             
-        # accounts.json 파일 업데이트
-        accounts_data = {}
-        if os.path.exists("accounts.json"):
-            with open("accounts.json", "r", encoding="utf-8") as f:
-                accounts_data = json.load(f)
-        
-        # google_sheets 섹션이 없으면 생성
-        if "google_sheets" not in accounts_data:
-            accounts_data["google_sheets"] = {}
-        
-        # credentials_file 정보 업데이트
-        accounts_data["google_sheets"]["credentials_file"] = file.filename
-        
-        with open("accounts.json", "w", encoding="utf-8") as f:
-            json.dump(accounts_data, f, ensure_ascii=False, indent=4)
+        # 설정 업데이트
+        settings = load_sheets_settings()
+        settings["credentials_file"] = file.filename
+        save_sheets_settings(settings)
         
         return {"success": True, "message": "파일이 성공적으로 업로드되었습니다."}
     except Exception as e:
@@ -147,7 +137,6 @@ async def upload_credentials(file: UploadFile = File(...)):
 async def login_form(request: Request):
     # 저장된 계정 목록 불러오기
     accounts = load_accounts()
-    account_names = list(accounts.keys())
     
     # 세션에서 저장된 계정 정보 불러오기
     account_data = request.session.get("account_data", {})
@@ -165,7 +154,7 @@ async def login_form(request: Request):
         {
             "request": request, 
             "state": state,
-            "accounts": account_names,  # 계정 목록 추가
+            "accounts": accounts,  # 계정 딕셔너리 그대로 전달
             "account_name": account_data.get("account_name", ""),
             "user_id": account_data.get("user_id", ""),
             "password": password,
@@ -711,9 +700,18 @@ def write_tistory_post(driver, title, content):
 
 @app.get("/publish", response_class=HTMLResponse)
 async def publish_page(request: Request):
+    # accounts.json 파일에서 계정 정보 로드
+    accounts = {}
+    if os.path.exists("accounts.json"):
+        with open("accounts.json", "r", encoding='utf-8') as f:
+            accounts = json.load(f)
+    
     return templates.TemplateResponse(
         "publish.html",
-        {"request": request}
+        {
+            "request": request,
+            "accounts": accounts
+        }
     )
 
 @app.get("/status", response_class=HTMLResponse)
@@ -1210,23 +1208,18 @@ async def fetch_google_sheets_data():
     try:
         print("구글 시트 데이터 가져오기 시작...")
         
-        # accounts.json에서 구글 시트 설정 읽기
-        if not os.path.exists("accounts.json"):
-            raise Exception("계정 설정 파일(accounts.json)이 없습니다.")
+        # sheets_settings.json에서 구글 시트 설정 읽기
+        settings = load_sheets_settings()
+        if not settings:
+            raise Exception("구글 시트 설정이 없습니다. 먼저 구글 시트를 설정해주세요.")
             
-        with open('accounts.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-            if 'google_sheets' not in config:
-                raise Exception("구글 시트 설정이 없습니다. 먼저 구글 시트를 설정해주세요.")
-            
-            sheets_config = config['google_sheets']
-            if not sheets_config.get('spreadsheet_id') or not sheets_config.get('sheet_name'):
-                raise Exception("구글 시트 ID 또는 시트 이름이 설정되지 않았습니다.")
-            
-            if not sheets_config.get('title_col') or not sheets_config.get('content_col'):
-                raise Exception("제목 열과 내용 열이 설정되지 않았습니다.")
+        if not settings.get('spreadsheet_id') or not settings.get('sheet_name'):
+            raise Exception("구글 시트 ID 또는 시트 이름이 설정되지 않았습니다.")
+        
+        if not settings.get('title_col') or not settings.get('content_col'):
+            raise Exception("제목 열과 내용 열이 설정되지 않았습니다.")
                 
-        print(f"구글 시트 설정 확인: ID={sheets_config['spreadsheet_id']}, 시트명={sheets_config['sheet_name']}, 제목열={sheets_config['title_col']}, 내용열={sheets_config['content_col']}")
+        print(f"구글 시트 설정 확인: ID={settings['spreadsheet_id']}, 시트명={settings['sheet_name']}, 제목열={settings['title_col']}, 내용열={settings['content_col']}")
 
         # credentials.json 파일 확인
         if not os.path.exists("credentials.json"):
@@ -1246,13 +1239,13 @@ async def fetch_google_sheets_data():
             sheets = service.spreadsheets()
             
             # 설정된 열의 데이터 가져오기 (1행부터)
-            title_col = sheets_config['title_col']
-            content_col = sheets_config['content_col']
-            range_name = f"{sheets_config['sheet_name']}!{title_col}1:{content_col}"
+            title_col = settings['title_col']
+            content_col = settings['content_col']
+            range_name = f"{settings['sheet_name']}!{title_col}1:{content_col}"
             print(f"데이터 범위 요청: {range_name}")
             
             result = sheets.values().get(
-                spreadsheetId=sheets_config['spreadsheet_id'],
+                spreadsheetId=settings['spreadsheet_id'],
                 range=range_name
             ).execute()
             
@@ -1287,7 +1280,7 @@ async def fetch_google_sheets_data():
         
     except Exception as e:
         print(f"전체 프로세스 오류: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e)) 
+        raise HTTPException(status_code=400, detail=str(e))
 
 def get_credentials():
     """구글 API 인증 정보를 가져오는 함수"""
@@ -1301,75 +1294,96 @@ def get_credentials():
     except Exception as e:
         raise Exception(f"인증 정보를 불러오는데 실패했습니다: {str(e)}") 
 
+def load_sheets_settings():
+    try:
+        with open("sheets_settings.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+def save_sheets_settings(settings):
+    try:
+        with open("sheets_settings.json", "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=4)
+        return True
+    except Exception as e:
+        print(f"구글 시트 설정 저장 중 오류 발생: {str(e)}")
+        return False
+
 @app.post("/save-google-sheet-settings")
 async def save_google_sheet_settings(data: dict = Body(...)):
     try:
-        spreadsheet_id = data.get("spreadsheet_id")
-        sheet_name = data.get("sheet_name")
+        # 스프레드시트 URL에서 ID 추출
+        spreadsheet_url = data.get("spreadsheet_url", "")
+        spreadsheet_id = None
+        
+        if spreadsheet_url:
+            match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", spreadsheet_url)
+            if match:
+                spreadsheet_id = match.group(1)
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"success": False, "error": "올바른 스프레드시트 URL이 아닙니다."}
+                )
+        
+        # 필수 필드 검증
         title_col = data.get("title_col")
         content_col = data.get("content_col")
+        sheet_name = data.get("sheet_name")
         
-        if not spreadsheet_id or not sheet_name:
+        if not all([title_col, content_col, sheet_name]):
             return JSONResponse(
-                content={"success": False, "error": "스프레드시트 ID와 시트 이름은 필수입니다."},
-                status_code=400
+                status_code=400,
+                content={"success": False, "error": "필수 입력값이 누락되었습니다."}
             )
-        
-        if not title_col or not content_col:
-            return JSONResponse(
-                content={"success": False, "error": "제목열과 내용열은 필수입니다."},
-                status_code=400
-            )
-        
-        # accounts.json 파일 읽기
-        accounts = {}
-        if os.path.exists("accounts.json"):
-            with open("accounts.json", "r", encoding='utf-8') as f:
-                accounts = json.load(f)
-        
-        # google_sheets 설정 업데이트
-        accounts["google_sheets"] = {
+            
+        # 설정 저장
+        settings = {
+            "spreadsheet_url": spreadsheet_url,  # URL도 저장
             "spreadsheet_id": spreadsheet_id,
             "sheet_name": sheet_name,
             "title_col": title_col,
             "content_col": content_col
         }
         
-        # 파일 저장
-        with open("accounts.json", "w", encoding='utf-8') as f:
-            json.dump(accounts, f, ensure_ascii=False, indent=2)
-        
-        return JSONResponse(content={"success": True, "message": "구글 시트 설정이 저장되었습니다."})
-        
+        if save_sheets_settings(settings):
+            return {"success": True, "message": "설정이 저장되었습니다."}
+        else:
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "error": "설정 저장 중 오류가 발생했습니다."}
+            )
+            
     except Exception as e:
         return JSONResponse(
-            content={"success": False, "error": f"구글 시트 설정 저장 중 오류가 발생했습니다: {str(e)}"},
-            status_code=500
-        ) 
+            status_code=500,
+            content={"success": False, "error": f"설정 저장 중 오류가 발생했습니다: {str(e)}"}
+        )
 
 @app.get("/get-google-sheet-settings")
 async def get_google_sheet_settings():
     try:
-        if not os.path.exists("accounts.json"):
-            return JSONResponse(content={"settings": None})
-            
-        with open('accounts.json', 'r', encoding='utf-8') as f:
-            config = json.load(f)
-            
-        settings = {}
+        settings = load_sheets_settings()
         
-        # 구글 시트 설정 가져오기
-        if 'google_sheets' in config:
-            settings.update(config['google_sheets'])
+        # credentials.json 파일 정보 확인
+        credentials_file = None
+        if os.path.exists("credentials.json"):
+            credentials_file = "credentials.json"
             
-        # credentials.json 파일 정보 가져오기
-        if 'credentials_file' in config:
-            settings['credentials_file'] = config['credentials_file']
-            
-        return JSONResponse(content={"settings": settings})
-        
+        return {
+            "success": True,
+            "settings": {
+                "spreadsheet_url": settings.get("spreadsheet_url"),  # URL도 반환
+                "spreadsheet_id": settings.get("spreadsheet_id"),
+                "sheet_name": settings.get("sheet_name"),
+                "title_col": settings.get("title_col"),
+                "content_col": settings.get("content_col"),
+                "credentials_file": credentials_file
+            }
+        }
     except Exception as e:
         return JSONResponse(
-            content={"error": f"구글 시트 설정을 불러오는 중 오류가 발생했습니다: {str(e)}"},
-            status_code=500
+            status_code=500,
+            content={"success": False, "error": f"설정을 불러오는 중 오류가 발생했습니다: {str(e)}"}
         ) 

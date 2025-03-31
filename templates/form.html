@@ -234,8 +234,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (settingsData.settings) {
                 // 스프레드시트 URL 설정
-                if (settingsData.settings.spreadsheet_id) {
-                    spreadsheetUrlInput.value = `https://docs.google.com/spreadsheets/d/${settingsData.settings.spreadsheet_id}`;
+                if (settingsData.settings.spreadsheet_url) {
+                    spreadsheetUrlInput.value = settingsData.settings.spreadsheet_url;
                 }
                 
                 // 시트 이름 설정
@@ -325,11 +325,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const titleCol = titleColumnSelect.value;
             const contentCol = contentColumnSelect.value;
 
-            // URL에서 스프레드시트 ID 추출
-            const spreadsheetId = extractSpreadsheetId(spreadsheetUrl);
-            
-            if (!spreadsheetId) {
-                showMessage('error', '올바른 스프레드시트 URL을 입력해주세요.');
+            if (!spreadsheetUrl) {
+                showMessage('error', '스프레드시트 URL을 입력해주세요.');
                 return;
             }
 
@@ -344,7 +341,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             const settings = {
-                spreadsheet_id: spreadsheetId,
+                spreadsheet_url: spreadsheetUrl,
                 sheet_name: sheetName,
                 title_col: titleCol,
                 content_col: contentCol
@@ -374,11 +371,6 @@ document.addEventListener('DOMContentLoaded', function() {
             showMessage('error', error.message || '설정을 저장하는 중 오류가 발생했습니다.');
         }
     });
-
-    function extractSpreadsheetId(url) {
-        const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-        return match ? match[1] : null;
-    }
 });
 </script>
 {% endblock %} 
