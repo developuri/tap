@@ -1223,13 +1223,13 @@ async def fetch_google_sheets_data():
         if not settings:
             raise Exception("구글 시트 설정이 없습니다. 먼저 구글 시트를 설정해주세요.")
             
-        if not settings.get('spreadsheet_id') or not settings.get('sheet_name'):
-            raise Exception("구글 시트 ID 또는 시트 이름이 설정되지 않았습니다.")
+        if not settings.get('spreadsheet_url') or not settings.get('sheet_name'):
+            raise Exception("구글 시트 URL 또는 시트 이름이 설정되지 않았습니다.")
         
         if not settings.get('title_col') or not settings.get('content_col'):
             raise Exception("제목 열과 내용 열이 설정되지 않았습니다.")
                 
-        print(f"구글 시트 설정 확인: ID={settings['spreadsheet_id']}, 시트명={settings['sheet_name']}, 제목열={settings['title_col']}, 내용열={settings['content_col']}")
+        print(f"구글 시트 설정 확인: URL={settings['spreadsheet_url']}, 시트명={settings['sheet_name']}, 제목열={settings['title_col']}, 내용열={settings['content_col']}")
 
         # credentials.json 파일 확인
         if not os.path.exists("credentials.json"):
@@ -1248,33 +1248,51 @@ async def fetch_google_sheets_data():
             service = build('sheets', 'v4', credentials=credentials)
             sheets = service.spreadsheets()
             
-            # 설정된 열의 데이터 가져오기 (2행부터)
+            # 스프레드시트 ID 추출
+            match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", settings['spreadsheet_url'])
+            if not match:
+                raise Exception("올바른 스프레드시트 URL이 아닙니다.")
+            spreadsheet_id = match.group(1)
+            
+            # 제목 열과 내용 열의 범위 설정
             title_col = settings['title_col']
             content_col = settings['content_col']
-            range_name = f"{settings['sheet_name']}!{title_col}2:{content_col}"  # 2행부터 시작
-            print(f"데이터 범위 요청: {range_name}")
             
-            result = sheets.values().get(
-                spreadsheetId=settings['spreadsheet_id'],
-                range=range_name
+            # 각 열의 데이터를 개별적으로 가져오기
+            title_range = f"{settings['sheet_name']}!{title_col}2:{title_col}"
+            content_range = f"{settings['sheet_name']}!{content_col}2:{content_col}"
+            
+            print(f"제목 데이터 범위: {title_range}")
+            print(f"내용 데이터 범위: {content_range}")
+            
+            # 제목 데이터 가져오기
+            title_result = sheets.values().get(
+                spreadsheetId=spreadsheet_id,
+                range=title_range
             ).execute()
             
-            values = result.get('values', [])
-            print(f"가져온 데이터 행 수: {len(values)}")
+            # 내용 데이터 가져오기
+            content_result = sheets.values().get(
+                spreadsheetId=spreadsheet_id,
+                range=content_range
+            ).execute()
             
-            if not values:
+            title_values = title_result.get('values', [])
+            content_values = content_result.get('values', [])
+            
+            print(f"가져온 제목 행 수: {len(title_values)}")
+            print(f"가져온 내용 행 수: {len(content_values)}")
+            
+            if not title_values or not content_values:
                 print("가져온 데이터가 없습니다.")
                 return {"posts": []}
             
             # 데이터를 포스트 형식으로 변환
             posts = []
-            title_idx = 0
-            content_idx = ord(content_col) - ord(title_col)
-            
-            for row in values:  # 이미 2행부터의 데이터이므로 추가 처리 필요 없음
-                if len(row) > content_idx:  # 제목과 내용이 모두 있는 경우만 처리
-                    title = row[title_idx].strip()
-                    content = row[content_idx].strip()
+            for i in range(min(len(title_values), len(content_values))):
+                if title_values[i] and content_values[i]:  # 빈 행 제외
+                    title = title_values[i][0].strip()  # 각 행의 첫 번째(유일한) 값
+                    content = content_values[i][0].strip()
                     if title and content:  # 빈 값이 아닌 경우만 추가
                         posts.append({
                             "title": title,

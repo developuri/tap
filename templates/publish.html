@@ -432,29 +432,48 @@ function displayData(posts) {
         const currentStatus = savedStatus[post.title] || '대기중';
         const statusClass = currentStatus === '발행완료' ? 'status-completed' : 'status-waiting';
         
-        postElement.innerHTML = `
-            <input type="checkbox" class="post-checkbox" value="${post.title}" ${currentStatus === '발행완료' ? 'disabled' : ''}>
-            <div class="post-content-wrapper">
-                <div style="display: flex; align-items: center;">
-                    <div class="post-title">${post.title}</div>
-                    <span class="post-status ${statusClass}">${currentStatus}</span>
-                </div>
-                <div class="post-content">${post.content}</div>
-            </div>
-        `;
-
+        const contentWrapper = document.createElement('div');
+        contentWrapper.className = 'post-content-wrapper';
+        
+        const titleStatusDiv = document.createElement('div');
+        titleStatusDiv.style.display = 'flex';
+        titleStatusDiv.style.alignItems = 'center';
+        
+        const titleDiv = document.createElement('div');
+        titleDiv.className = 'post-title';
+        titleDiv.textContent = post.title;
+        
+        const statusSpan = document.createElement('span');
+        statusSpan.className = `post-status ${statusClass}`;
+        statusSpan.textContent = currentStatus;
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'post-content';
+        contentDiv.textContent = post.content; // textContent를 사용하여 HTML 태그를 그대로 표시
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'post-checkbox';
+        checkbox.value = post.title;
+        checkbox.disabled = currentStatus === '발행완료';
+        
+        titleStatusDiv.appendChild(titleDiv);
+        titleStatusDiv.appendChild(statusSpan);
+        contentWrapper.appendChild(titleStatusDiv);
+        contentWrapper.appendChild(contentDiv);
+        
+        postElement.appendChild(checkbox);
+        postElement.appendChild(contentWrapper);
+        
         // 체크박스 이벤트 리스너 추가
-        const checkbox = postElement.querySelector('.post-checkbox');
-        if (checkbox) {
-            checkbox.addEventListener('change', () => {
-                updatePublishButtonState();
-                updateSelectAllState();
-            });
-        }
-
+        checkbox.addEventListener('change', () => {
+            updatePublishButtonState();
+            updateSelectAllState();
+        });
+        
         elements.postList.appendChild(postElement);
     });
-
+    
     // 전체선택 체크박스 이벤트 리스너
     const selectAll = elements.postList.querySelector('#selectAll');
     if (selectAll) {
@@ -686,5 +705,23 @@ document.addEventListener('DOMContentLoaded', function() {
         displayData(storedPosts);
     }
 });
+
+function showPreview(title) {
+    fetch(`/preview/${encodeURIComponent(title)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
+            } else {
+                const previewContent = document.getElementById('preview-content');
+                // HTML 태그를 이스케이프하여 텍스트로 표시
+                previewContent.textContent = data.content;
+            }
+        })
+        .catch(error => {
+            console.error('미리보기를 가져오는 중 오류가 발생했습니다:', error);
+            alert('미리보기를 가져오는 중 오류가 발생했습니다.');
+        });
+}
 </script>
-{% endblock %} 
+{% endblock %}
