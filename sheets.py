@@ -54,7 +54,8 @@ def get_google_sheet_data(sheet_url: str, sheet_name: str, title_col: str, conte
 
     sheet = client.open_by_url(sheet_url).worksheet(sheet_name)
 
-    title_data = sheet.col_values(ord(title_col.upper()) - 64)
-    content_data = sheet.col_values(ord(content_col.upper()) - 64)
+    # 2행부터 데이터 가져오기
+    title_data = sheet.col_values(ord(title_col.upper()) - 64)[1:]  # 2행부터 시작
+    content_data = sheet.col_values(ord(content_col.upper()) - 64)[1:]  # 2행부터 시작
 
-    return list(zip(title_data[1:], content_data[1:])) 
+    return list(zip(title_data, content_data))  # 이미 2행부터의 데이터이므로 [1:] 제거 

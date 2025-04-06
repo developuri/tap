@@ -191,6 +191,47 @@
 .select-all-container label {
     font-weight: bold;
     color: #2c3e50;
+    margin-right: 20px;
+}
+
+.select-15-button {
+    background-color: #3498db;
+    color: white;
+    padding: 6px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.3s;
+}
+
+.select-15-button:hover {
+    background-color: #2980b9;
+}
+
+.select-15-button:disabled {
+    background-color: #bdc3c7;
+    cursor: not-allowed;
+}
+
+.publish-interval-container {
+    display: flex;
+    align-items: center;
+    margin-left: 10px;
+}
+
+.publish-interval-container input[type="number"] {
+    font-size: 14px;
+}
+
+.publish-interval-container input[type="number"]::-webkit-inner-spin-button,
+.publish-interval-container input[type="number"]::-webkit-outer-spin-button {
+    opacity: 1;
+}
+
+.publish-interval-container label {
+    font-size: 14px;
+    white-space: nowrap;
 }
 </style>
 {% endblock %}
@@ -222,6 +263,10 @@
             <button id="publishSelectedButton" class="publish-selected-button" disabled>
                 선택한 글 발행하기
             </button>
+            <div class="publish-interval-container">
+                <input type="number" id="publishInterval" min="0" value="0" style="width: 80px; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin: 0 8px;">
+                <label for="publishInterval" style="color: #2c3e50;">분 간격으로 발행</label>
+            </div>
         </div>
     </div>
 
@@ -229,9 +274,10 @@
     <div id="error" class="error" style="display: none;"></div>
 
     <div id="postList" class="post-list">
-        <div class="select-all-container" style="display: none;">
+        <div class="select-all-container">
             <input type="checkbox" id="selectAll">
             <label for="selectAll">전체 선택</label>
+            <button id="select15Button" class="select-15-button">15개 선택</button>
         </div>
         <div id="noData" class="no-data">
             구글 시트 데이터를 가져와주세요.
@@ -297,7 +343,8 @@ function getElements() {
         spinner: document.getElementById('loadingSpinner'),
         publishButton: document.getElementById('publishSelectedButton'),
         selectAll: document.getElementById('selectAll'),
-        selectAllContainer: document.querySelector('.select-all-container')
+        selectAllContainer: document.querySelector('.select-all-container'),
+        select15Button: document.getElementById('select15Button')
     };
 }
 
@@ -329,8 +376,8 @@ function updatePublishButtonState() {
 // 전체 선택 체크박스 상태 업데이트
 function updateSelectAllState() {
     const elements = getElements();
-    const checkboxes = document.querySelectorAll('.post-checkbox');
-    const checkedBoxes = document.querySelectorAll('.post-checkbox:checked');
+    const checkboxes = document.querySelectorAll('.post-checkbox:not(:disabled)');
+    const checkedBoxes = document.querySelectorAll('.post-checkbox:not(:disabled):checked');
     
     if (elements.selectAll) {
         elements.selectAll.checked = checkboxes.length > 0 && checkboxes.length === checkedBoxes.length;
@@ -343,24 +390,37 @@ function displayData(posts) {
     const elements = getElements();
     if (!elements.postList) return;
     
-    elements.postList.innerHTML = '';
+    elements.postList.innerHTML = `
+        <div class="select-all-container">
+            <input type="checkbox" id="selectAll">
+            <label for="selectAll">전체 선택</label>
+            <button id="select15Button" class="select-15-button">15개 선택</button>
+        </div>
+        <div id="noData" class="no-data" style="display: none;">
+            구글 시트 데이터를 가져와주세요.
+        </div>
+    `;
     
     if (posts.length === 0) {
-        if (elements.noData) {
-            elements.noData.style.display = 'block';
-            elements.noData.textContent = '가져올 데이터가 없습니다.';
+        const noDataElement = elements.postList.querySelector('#noData');
+        const selectAllContainer = elements.postList.querySelector('.select-all-container');
+        if (noDataElement) {
+            noDataElement.style.display = 'block';
+            noDataElement.textContent = '가져올 데이터가 없습니다.';
         }
-        if (elements.selectAllContainer) {
-            elements.selectAllContainer.style.display = 'none';
+        if (selectAllContainer) {
+            selectAllContainer.style.display = 'none';
         }
         return;
     }
-    
-    if (elements.selectAllContainer) {
-        elements.selectAllContainer.style.display = 'flex';
+
+    const noDataElement = elements.postList.querySelector('#noData');
+    const selectAllContainer = elements.postList.querySelector('.select-all-container');
+    if (noDataElement) {
+        noDataElement.style.display = 'none';
     }
-    if (elements.noData) {
-        elements.noData.style.display = 'none';
+    if (selectAllContainer) {
+        selectAllContainer.style.display = 'flex';
     }
 
     // 저장된 상태 정보 가져오기
@@ -377,21 +437,55 @@ function displayData(posts) {
             <div class="post-content-wrapper">
                 <div style="display: flex; align-items: center;">
                     <div class="post-title">${post.title}</div>
-                    <div class="post-status ${statusClass}">${currentStatus}</div>
+                    <span class="post-status ${statusClass}">${currentStatus}</span>
                 </div>
                 <div class="post-content">${post.content}</div>
             </div>
         `;
-        
+
+        // 체크박스 이벤트 리스너 추가
         const checkbox = postElement.querySelector('.post-checkbox');
-        checkbox.addEventListener('change', function() {
+        if (checkbox) {
+            checkbox.addEventListener('change', () => {
+                updatePublishButtonState();
+                updateSelectAllState();
+            });
+        }
+
+        elements.postList.appendChild(postElement);
+    });
+
+    // 전체선택 체크박스 이벤트 리스너
+    const selectAll = elements.postList.querySelector('#selectAll');
+    if (selectAll) {
+        selectAll.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.post-checkbox:not(:disabled)');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+            });
+            updatePublishButtonState();
+        });
+    }
+
+    // 15개 선택 버튼 이벤트 리스너
+    const select15Button = elements.postList.querySelector('#select15Button');
+    if (select15Button) {
+        select15Button.addEventListener('click', function() {
+            const checkboxes = Array.from(document.querySelectorAll('.post-checkbox:not(:disabled)'));
+            // 모든 체크박스 선택 해제
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            // 처음 15개만 선택
+            checkboxes.slice(0, 15).forEach(checkbox => {
+                checkbox.checked = true;
+            });
             updatePublishButtonState();
             updateSelectAllState();
         });
-        
-        elements.postList.appendChild(postElement);
-    });
-    
+    }
+
+    updateSelectAllState();
     updatePublishButtonState();
 }
 
@@ -466,22 +560,19 @@ async function publishSelectedPosts() {
         return;
     }
 
-    // 선택된 글들의 상태를 '발행중'으로 변경
-    selectedPosts.forEach(post => {
-        const postElement = document.querySelector(`.post-checkbox[value="${post.title}"]`).closest('.post-item');
-        const statusElement = postElement.querySelector('.post-status');
-        statusElement.className = 'post-status status-publishing';
-        statusElement.textContent = '발행중';
-    });
-
-    // 발행 버튼과 계정 선택 비활성화
+    // 발행 간격 가져오기
+    const publishInterval = parseInt(document.getElementById('publishInterval').value) || 0;
+    
+    // 발행 버튼과 계정 선택, 간격 입력 비활성화
     const publishButton = document.getElementById('publishSelectedButton');
     const accountSelectElement = document.getElementById('accountSelect');
+    const intervalInput = document.getElementById('publishInterval');
     publishButton.disabled = true;
     accountSelectElement.disabled = true;
+    intervalInput.disabled = true;
 
     try {
-        // 서버에 발행 요청
+        // 모든 선택된 글을 한 번의 요청으로 서버에 전송
         const response = await fetch('/tistory-login/selected-posts', {
             method: 'POST',
             headers: {
@@ -489,7 +580,8 @@ async function publishSelectedPosts() {
             },
             body: JSON.stringify({
                 accountName: selectedAccount,
-                posts: selectedPosts
+                posts: selectedPosts,
+                publishInterval: publishInterval
             })
         });
 
@@ -499,47 +591,44 @@ async function publishSelectedPosts() {
             throw new Error(data.error);
         }
 
-        // 저장된 상태 정보 가져오기
-        const { posts: storedPosts, status: storedStatus } = getStoredPosts();
-        
-        // 각 글의 발행 결과에 따라 상태 업데이트
-        data.results.forEach(result => {
+        // 발행 결과 처리
+        const results = data.results;
+        for (const result of results) {
             const postElement = document.querySelector(`.post-checkbox[value="${result.title}"]`).closest('.post-item');
             const statusElement = postElement.querySelector('.post-status');
-            const checkbox = postElement.querySelector('.post-checkbox');
             
             if (result.status === '성공') {
                 statusElement.className = 'post-status status-completed';
                 statusElement.textContent = '발행완료';
-                checkbox.disabled = true;
-                storedStatus[result.title] = '발행완료';
+                postElement.querySelector('.post-checkbox').disabled = true;
             } else {
                 statusElement.className = 'post-status status-failed';
                 statusElement.textContent = '발행실패';
-                storedStatus[result.title] = '발행실패';
             }
+        }
+
+        // 저장된 상태 정보 가져오기
+        const { posts: storedPosts, status: storedStatus } = getStoredPosts();
+        
+        // 각 글의 발행 결과에 따라 상태 저장
+        results.forEach(result => {
+            storedStatus[result.title] = result.status === '성공' ? '발행완료' : '발행실패';
         });
 
         // 업데이트된 상태 저장
         storePosts(storedPosts, storedStatus);
 
         // 성공한 글 개수 계산
-        const successCount = data.results.filter(result => result.status === '성공').length;
+        const successCount = results.filter(result => result.status === '성공').length;
         showMessage('message', `<span class="success-icon">✓</span> ${successCount}개의 글이 성공적으로 발행되었습니다.`);
 
     } catch (error) {
         showMessage('error', '<span class="error-icon">⚠</span> 글 발행 중 오류가 발생했습니다: ' + error.message);
-        // 에러 발생 시 발행 중이던 글들의 상태를 '실패'로 변경
-        selectedPosts.forEach(post => {
-            const postElement = document.querySelector(`.post-checkbox[value="${post.title}"]`).closest('.post-item');
-            const statusElement = postElement.querySelector('.post-status');
-            statusElement.className = 'post-status status-failed';
-            statusElement.textContent = '발행실패';
-        });
     } finally {
-        // 발행 버튼과 계정 선택 활성화
+        // 발행 버튼과 계정 선택, 간격 입력 활성화
         publishButton.disabled = false;
         accountSelectElement.disabled = false;
+        intervalInput.disabled = false;
         updatePublishButtonState();
     }
 }
@@ -562,7 +651,7 @@ document.addEventListener('DOMContentLoaded', function() {
         elements.publishButton.addEventListener('click', publishSelectedPosts);
     }
     
-    // 전체 선택 체크박스
+    // 전체 선택 체크박스 초기 설정
     if (elements.selectAll) {
         elements.selectAll.addEventListener('change', function() {
             const checkboxes = document.querySelectorAll('.post-checkbox:not(:disabled)');
@@ -570,6 +659,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 checkbox.checked = this.checked;
             });
             updatePublishButtonState();
+        });
+    }
+
+    // 15개 선택 버튼 이벤트 리스너
+    const select15Button = elements.postList.querySelector('#select15Button');
+    if (select15Button) {
+        select15Button.addEventListener('click', function() {
+            const checkboxes = Array.from(document.querySelectorAll('.post-checkbox:not(:disabled)'));
+            // 모든 체크박스 선택 해제
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            // 처음 15개만 선택
+            checkboxes.slice(0, 15).forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updatePublishButtonState();
+            updateSelectAllState();
         });
     }
 

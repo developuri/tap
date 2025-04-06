@@ -864,28 +864,31 @@ async def fetch_posts(request: Request):
 async def handle_selected_posts(request: Request, data: dict = Body(...)):
     account_name = data.get("accountName")
     selected_posts = data.get("posts", [])
-
-    print(f"\n[{account_name}] 글 발행 프로세스 시작...")
-
-    if not account_name:
+    publish_interval = data.get("publishInterval", 0)  # 발행 간격(분) 추가
+    
+    if not account_name or not selected_posts:
         return JSONResponse(
-            content={"error": "계정명이 전달되지 않았습니다."},
+            content={"error": "계정 이름과 선택된 글이 필요합니다."},
             status_code=400
         )
 
-    if not selected_posts:
-        return JSONResponse(
-            content={"error": "발행할 글이 선택되지 않았습니다."},
-            status_code=400
-        )
+    # 계정 정보 로드
+    accounts = {}
+    if os.path.exists("accounts.json"):
+        with open("accounts.json", "r", encoding='utf-8') as f:
+            accounts = json.load(f)
 
-    accounts = load_accounts()
-    account_data = accounts.get(account_name)
-
-    if not account_data:
+    if account_name not in accounts:
         return JSONResponse(
             content={"error": "계정 정보를 찾을 수 없습니다."},
-            status_code=404
+            status_code=400
+        )
+
+    account_data = accounts[account_name]
+    if "password" not in account_data:
+        return JSONResponse(
+            content={"error": "계정 비밀번호가 없습니다."},
+            status_code=400
         )
 
     try:
@@ -955,7 +958,7 @@ async def handle_selected_posts(request: Request, data: dict = Body(...)):
             time.sleep(5)
 
             results = []
-            for post in selected_posts:
+            for i, post in enumerate(selected_posts):
                 try:
                     print(f"\n[{account_name}] '{post['title']}' 글 발행 시작...")
                     
@@ -1103,6 +1106,13 @@ async def handle_selected_posts(request: Request, data: dict = Body(...)):
                         "message": "발행 완료"
                     })
 
+                    # 마지막 글이 아니고 발행 간격이 설정되어 있다면 대기
+                    if i < len(selected_posts) - 1 and publish_interval > 0:
+                        wait_seconds = publish_interval * 60
+                        print(f"\n[{account_name}] 다음 글 발행 대기 중... ({publish_interval}분)")
+                        time.sleep(wait_seconds)
+                        print(f"[{account_name}] 대기 완료, 다음 글 발행 시작")
+
                 except Exception as e:
                     print(f"[{account_name}] '{post['title']}' 글 발행 실패: {str(e)}")
                     results.append({
@@ -1114,11 +1124,11 @@ async def handle_selected_posts(request: Request, data: dict = Body(...)):
             return JSONResponse(content={"results": results})
 
         finally:
+            # 모든 글 발행이 완료된 후에만 WebDriver 종료
             print(f"[{account_name}] WebDriver 종료")
             driver.quit()
 
     except Exception as e:
-        print(f"[{account_name}] 전체 프로세스 실패: {str(e)}")
         return JSONResponse(
             content={"error": f"글 발행 중 오류가 발생했습니다: {str(e)}"},
             status_code=500
@@ -1238,10 +1248,10 @@ async def fetch_google_sheets_data():
             service = build('sheets', 'v4', credentials=credentials)
             sheets = service.spreadsheets()
             
-            # 설정된 열의 데이터 가져오기 (1행부터)
+            # 설정된 열의 데이터 가져오기 (2행부터)
             title_col = settings['title_col']
             content_col = settings['content_col']
-            range_name = f"{settings['sheet_name']}!{title_col}1:{content_col}"
+            range_name = f"{settings['sheet_name']}!{title_col}2:{content_col}"  # 2행부터 시작
             print(f"데이터 범위 요청: {range_name}")
             
             result = sheets.values().get(
@@ -1261,7 +1271,7 @@ async def fetch_google_sheets_data():
             title_idx = 0
             content_idx = ord(content_col) - ord(title_col)
             
-            for row in values:
+            for row in values:  # 이미 2행부터의 데이터이므로 추가 처리 필요 없음
                 if len(row) > content_idx:  # 제목과 내용이 모두 있는 경우만 처리
                     title = row[title_idx].strip()
                     content = row[content_idx].strip()
